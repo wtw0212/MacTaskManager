@@ -29,6 +29,16 @@ enum Theme {
         String(format: "%.1f MB/s", value / 1_048_576)
     }
 
+    /// Bytes per second as megabits, e.g. "0.1 Mbps", like Windows' Network column.
+    static func megabitRate(_ bytesPerSecond: Double) -> String {
+        String(format: "%.1f Mbps", bytesPerSecond * 8 / 1_000_000)
+    }
+
+    /// A 0...1 share with one decimal, e.g. "0.3%".
+    static func precisePercent(_ value: Double) -> String {
+        String(format: "%.1f%%", value * 100)
+    }
+
     private static let rateFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file

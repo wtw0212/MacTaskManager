@@ -23,10 +23,11 @@ struct ContentView: View {
     @AppStorage("selectedPage") private var page: Page = .performance
     @AppStorage("navigationCollapsed") private var collapsed = false
     @State private var search = ""
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            TitleBar(search: $search)
+            TitleBar(search: $search, focus: $searchFocused)
 
             HStack(spacing: 0) {
                 NavigationRail(page: $page, collapsed: $collapsed)
@@ -45,6 +46,13 @@ struct ContentView: View {
             }
         }
         .background(DS.Palette.windowBackground)
+        .background {
+            // ⌘F focuses the search box, as Ctrl+F does in Windows.
+            Button("Search") { searchFocused = true }
+                .keyboardShortcut("f")
+                .opacity(0)
+                .allowsHitTesting(false)
+        }
         .ignoresSafeArea(.container, edges: .top)
     }
 }
@@ -53,6 +61,7 @@ struct ContentView: View {
 /// the traffic-light buttons, shows the app name, and hosts the search box.
 private struct TitleBar: View {
     @Binding var search: String
+    var focus: FocusState<Bool>.Binding
 
     var body: some View {
         ZStack {
@@ -63,7 +72,7 @@ private struct TitleBar: View {
                 Text("Task Manager").font(DS.Typeface.caption)
                 Spacer()
             }
-            SearchField(prompt: "Type a name or PID to search", text: $search)
+            SearchField(prompt: "Type a name or PID to search", text: $search, focus: focus)
                 .frame(width: 360)
         }
         .padding(.horizontal, DS.Space.m)

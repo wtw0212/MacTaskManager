@@ -15,7 +15,7 @@ struct CPUDetailView: View {
             ResourceHeader(title: "CPU", subtitle: SystemInfo.cpuName)
 
             VStack(spacing: DS.Space.xs) {
-                CaptionRow(leading: "% Utilization over \(PerformanceMonitor.historyLength) seconds", trailing: "100%")
+                CaptionRow(leading: "% Utilization over \(monitor.historySeconds) seconds", trailing: "100%")
                 Group {
                     switch mode {
                     case .overall:

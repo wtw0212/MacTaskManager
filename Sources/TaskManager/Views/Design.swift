@@ -32,6 +32,11 @@ enum DS {
         static let icon: CGFloat = 16
         static let navIcon: CGFloat = 18
         static let valueColumn: CGFloat = 96
+        static let narrowColumn: CGFloat = 72
+        static let statusColumn: CGFloat = 140
+        static let pathColumn: CGFloat = 260
+        static let nameColumnMin: CGFloat = 220
+        static let commandButton: CGFloat = 32
         static let tileGraph = CGSize(width: 72, height: 48)
         static let resourceList: CGFloat = 248
     }
@@ -62,6 +67,8 @@ enum DS {
         static let disk = Color(red: 0.30, green: 0.65, blue: 0.05)
         static let network = Color(red: 0.65, green: 0.31, blue: 0.0)
         static let gpu = Color(red: 0.0, green: 0.52, blue: 0.62)
+        /// Windows' green efficiency-mode leaf.
+        static let efficiency = Color(red: 0.06, green: 0.55, blue: 0.24)
 
         /// Heat shading for process value cells: light cyan for idle, deeper teal for busy.
         static func heat(_ level: Double) -> Color {
@@ -110,6 +117,8 @@ struct PageHeader<Actions: View>: View {
 struct CommandButton: View {
     var title: String
     var icon: FluentIcon
+    /// Draws the icon filled, for toggles that are on (e.g. "Efficiency mode").
+    var isOn = false
     var action: () -> Void
 
     @Environment(\.isEnabled) private var isEnabled
@@ -118,11 +127,11 @@ struct CommandButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: DS.Space.s) {
-                Fluent(icon, size: DS.Size.icon)
+                Fluent(icon, filled: isOn, size: DS.Size.icon)
                 Text(title).font(DS.Typeface.body)
             }
             .padding(.horizontal, DS.Space.m)
-            .frame(height: 32)
+            .frame(height: DS.Size.commandButton)
             .background(RoundedRectangle(cornerRadius: DS.Radius.control).fill(hovering && isEnabled ? DS.Palette.hover : .clear))
             .contentShape(Rectangle())
         }
@@ -132,15 +141,56 @@ struct CommandButton: View {
     }
 }
 
+/// Command-bar button that opens a menu, like Windows' "View" button.
+struct CommandMenu<Content: View>: View {
+    var title: String
+    var icon: FluentIcon
+    @ViewBuilder var content: Content
+
+    @State private var hovering = false
+
+    var body: some View {
+        Menu {
+            content
+        } label: {
+            Label { Text(title).font(DS.Typeface.body) } icon: { Image(nsImage: icon.image()) }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .padding(.horizontal, DS.Space.m)
+        .frame(height: DS.Size.commandButton)
+        .background(RoundedRectangle(cornerRadius: DS.Radius.control).fill(hovering ? DS.Palette.hover : .clear))
+        .onHover { hovering = $0 }
+    }
+}
+
+extension FluentIcon {
+    @MainActor private static var images: [String: NSImage] = [:]
+
+    /// The icon as a template image, for places that only draw images, such as menus.
+    @MainActor func image(size: CGFloat = DS.Size.icon) -> NSImage {
+        let key = "\(rawValue)-\(size)"
+        if let image = Self.images[key] { return image }
+        let renderer = ImageRenderer(content: Fluent(self, size: size))
+        renderer.scale = 2
+        let image = renderer.nsImage ?? NSImage()
+        image.isTemplate = true
+        Self.images[key] = image
+        return image
+    }
+}
+
 /// Rounded search box with a Fluent search icon.
 struct SearchField: View {
     var prompt: String
     @Binding var text: String
+    var focus: FocusState<Bool>.Binding
 
     var body: some View {
         HStack(spacing: DS.Space.s) {
             Fluent(.search, size: 14).foregroundStyle(.secondary)
             TextField(prompt, text: $text)
+                .focused(focus)
                 .textFieldStyle(.plain)
                 .font(DS.Typeface.body)
             if !text.isEmpty {
@@ -276,11 +326,13 @@ struct LabeledGraph: View {
     var maxValue: Double = 1
     var topLabel = "100%"
 
+    @EnvironmentObject private var monitor: PerformanceMonitor
+
     var body: some View {
         VStack(spacing: DS.Space.xs) {
             CaptionRow(leading: title, trailing: topLabel)
             UsageGraph(values: values, color: color, secondary: secondary, maxValue: maxValue)
-            CaptionRow(leading: "\(PerformanceMonitor.historyLength) seconds", trailing: "0")
+            CaptionRow(leading: "\(monitor.historySeconds) seconds", trailing: "0")
         }
     }
 }
