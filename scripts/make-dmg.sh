@@ -21,6 +21,7 @@ fi
 rm -rf "$DIST"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$EXECUTABLE"
+cp -R LICENSES "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

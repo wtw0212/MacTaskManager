@@ -2,36 +2,32 @@ import SwiftUI
 
 struct NetworkDetailView: View {
     var network: NetworkState
+    var scale: Double
 
     var body: some View {
-        let scale = Theme.niceScale(max(network.receiveHistory.max() ?? 0, network.sendHistory.max() ?? 0), minimum: 12_500)
-        VStack(alignment: .leading, spacing: 12) {
-            DetailHeader(title: network.displayName, subtitle: network.id)
+        VStack(alignment: .leading, spacing: DS.Space.m) {
+            ResourceHeader(title: network.displayName, subtitle: network.id)
 
             LabeledGraph(
                 title: "Throughput",
                 values: network.receiveHistory,
-                color: Theme.network,
+                color: DS.Palette.network,
                 secondary: network.sendHistory,
                 maxValue: scale,
                 topLabel: Theme.bitRate(scale)
             )
 
-            HStack(alignment: .top, spacing: 40) {
-                Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
-                    GridRow {
-                        Stat(label: "Send", value: Theme.bitRate(network.sendRate), large: true, dashed: true, color: Theme.network)
-                        Stat(label: "Receive", value: Theme.bitRate(network.receiveRate), large: true, color: Theme.network)
-                    }
+            StatsArea(info: [
+                ("Interface:", network.id),
+                ("IPv4 address:", network.ipv4 ?? "N/A"),
+                ("IPv6 address:", network.ipv6 ?? "N/A"),
+                ("Total received:", Theme.bytes(network.counters.bytesIn)),
+                ("Total sent:", Theme.bytes(network.counters.bytesOut)),
+            ]) {
+                GridRow {
+                    Stat(label: "Send", value: Theme.bitRate(network.sendRate), legend: DS.Palette.network, dashed: true)
+                    Stat(label: "Receive", value: Theme.bitRate(network.receiveRate), legend: DS.Palette.network)
                 }
-                InfoList(rows: [
-                    ("Interface:", network.id),
-                    ("IPv4 address:", network.ipv4 ?? "N/A"),
-                    ("IPv6 address:", network.ipv6 ?? "N/A"),
-                    ("Total received:", Theme.bytes(network.counters.bytesIn)),
-                    ("Total sent:", Theme.bytes(network.counters.bytesOut)),
-                ])
-                Spacer()
             }
         }
     }

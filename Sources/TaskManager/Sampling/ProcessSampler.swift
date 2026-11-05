@@ -1,6 +1,11 @@
 import AppKit
 import Darwin
 
+// Exported by libSystem but not in the public headers; Activity Monitor uses it to group
+// helper processes (for example browser renderers) under the app they belong to.
+@_silgen_name("responsibility_get_pid_responsible_for_pid")
+private func responsibility_get_pid_responsible_for_pid(_ pid: pid_t) -> pid_t
+
 struct ProcessRow: Identifiable {
     let id: pid_t
     var name: String
@@ -12,6 +17,10 @@ struct ProcessRow: Identifiable {
     /// Physical footprint in bytes (what Activity Monitor shows as Memory). 0 when not readable.
     var memory: UInt64
     var threads: Int?
+    /// Disk read + write in bytes per second. -1 when not readable.
+    var diskRate: Double = -1
+    /// The process macOS holds responsible for this one (the app, for helpers).
+    var responsiblePID: pid_t = 0
     var pid: Int32 { id }
 }
 
@@ -30,6 +39,7 @@ final class ProcessSampler {
     }
 
     private var previousCPU: [Identity: UInt64] = [:]
+    private var previousDisk: [Identity: UInt64] = [:]
     private var previousTime = DispatchTime.now().uptimeNanoseconds
     private var names: [Identity: Cached] = [:]
     private let ticksToNanoseconds: Double = {
@@ -51,6 +61,7 @@ final class ProcessSampler {
 
         var rows: [ProcessRow] = []
         var currentCPU: [Identity: UInt64] = [:]
+        var currentDisk: [Identity: UInt64] = [:]
         var currentNames: [Identity: Cached] = [:]
 
         for pid in Self.allPIDs() where pid > 0 {
@@ -67,6 +78,7 @@ final class ProcessSampler {
 
             var cpu = -1.0
             var memory: UInt64 = 0
+            var diskRate = -1.0
             if readable {
                 let ticks = usage.ri_user_time + usage.ri_system_time
                 currentCPU[identity] = ticks
@@ -76,6 +88,13 @@ final class ProcessSampler {
                     cpu = 0
                 }
                 memory = usage.ri_phys_footprint
+                let disk = usage.ri_diskio_bytesread + usage.ri_diskio_byteswritten
+                currentDisk[identity] = disk
+                if let previous = previousDisk[identity], elapsed > 0, disk >= previous {
+                    diskRate = Double(disk - previous) / (elapsed / 1_000_000_000)
+                } else {
+                    diskRate = 0
+                }
             }
 
             let app = apps[pid]
@@ -87,11 +106,14 @@ final class ProcessSampler {
                 icon: app?.icon,
                 cpu: cpu,
                 memory: memory,
-                threads: Self.threadCount(pid)
+                threads: Self.threadCount(pid),
+                diskRate: diskRate,
+                responsiblePID: responsibility_get_pid_responsible_for_pid(pid)
             ))
         }
 
         previousCPU = currentCPU
+        previousDisk = currentDisk
         names = currentNames
         return rows
     }

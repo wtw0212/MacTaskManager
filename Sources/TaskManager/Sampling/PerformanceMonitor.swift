@@ -61,7 +61,7 @@ final class PerformanceMonitor: ObservableObject {
 
     // Processes (only sampled while the Processes tab is open)
     @Published private(set) var processes: [ProcessRow] = []
-    var samplesProcesses = false {
+    var samplesProcesses = true {
         didSet { if samplesProcesses && !oldValue { processes = processSampler.sample() } }
     }
 

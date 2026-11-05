@@ -10,93 +10,102 @@ enum Resource: Hashable {
 
 struct PerformanceView: View {
     @EnvironmentObject private var monitor: PerformanceMonitor
-    @State private var selection: Resource? = .cpu
+    @State private var selection: Resource = .cpu
 
     var body: some View {
-        HStack(spacing: 0) {
-            List(selection: $selection) {
-                SidebarRow(title: "CPU", subtitle: cpuSubtitle, values: monitor.totalHistory, color: Theme.cpu)
-                    .tag(Resource.cpu)
-
-                if let memory = monitor.memory {
-                    SidebarRow(
-                        title: "Memory",
-                        subtitle: "\(Theme.gigabytes(memory.used))/\(Theme.gigabytes(memory.total)) (\(Theme.percent(memory.usedFraction)))",
-                        values: monitor.memoryHistory,
-                        color: Theme.memory
-                    )
-                    .tag(Resource.memory)
-                }
-
-                ForEach(Array(monitor.disks.enumerated()), id: \.element.id) { index, disk in
-                    SidebarRow(
-                        title: "Disk \(index) (\(disk.id))",
-                        subtitle: "\(disk.counters.name)\n\(Theme.percent(disk.activeTime))",
-                        values: disk.activeHistory,
-                        color: Theme.disk
-                    )
-                    .tag(Resource.disk(disk.id))
-                }
-
-                ForEach(monitor.networks) { network in
-                    SidebarRow(
-                        title: network.displayName,
-                        subtitle: "\(network.id)\nS: \(Theme.bitRate(network.sendRate)) R: \(Theme.bitRate(network.receiveRate))",
-                        values: network.receiveHistory,
-                        color: Theme.network,
-                        secondary: network.sendHistory,
-                        maxValue: Theme.niceScale(max(network.receiveHistory.max() ?? 0, network.sendHistory.max() ?? 0), minimum: 12_500)
-                    )
-                    .tag(Resource.network(network.id))
-                }
-
-                ForEach(monitor.gpus) { gpu in
-                    SidebarRow(
-                        title: monitor.gpus.count > 1 ? "GPU \(gpu.id)" : "GPU",
-                        subtitle: "\(gpu.reading.name)\n\(Theme.percent(gpu.reading.utilization))",
-                        values: gpu.history,
-                        color: Theme.gpu
-                    )
-                    .tag(Resource.gpu(gpu.id))
-                }
+        VStack(spacing: 0) {
+            PageHeader(title: "Performance") {
+                CommandButton(title: "Run new task", icon: .runTask) { RunNewTask.present() }
             }
-            .listStyle(.sidebar)
-            .frame(width: 250)
 
-            Divider()
+            HStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: DS.Space.xxs) { tiles }
+                        .padding(DS.Space.s)
+                }
+                .frame(width: DS.Size.resourceList)
 
-            detail
-                .padding(20)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Rectangle().fill(DS.Palette.stroke).frame(width: 1)
+
+                detail
+                    .padding(.horizontal, DS.Space.xl)
+                    .padding(.vertical, DS.Space.l)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
         }
+    }
+
+    // MARK: Resource tiles
+
+    @ViewBuilder
+    private var tiles: some View {
+        tile(.cpu, "CPU", [cpuSubtitle], monitor.totalHistory, DS.Palette.cpu)
+
+        if let memory = monitor.memory {
+            tile(.memory, "Memory",
+                 ["\(Theme.gigabytes(memory.used, unit: false))/\(Theme.gigabytes(memory.total)) (\(Theme.percent(memory.usedFraction)))"],
+                 monitor.memoryHistory, DS.Palette.memory)
+        }
+
+        ForEach(Array(monitor.disks.enumerated()), id: \.element.id) { index, disk in
+            tile(.disk(disk.id), "Disk \(index) (\(disk.id))",
+                 [disk.counters.isInternal == false ? "External" : "SSD", Theme.percent(disk.activeTime)],
+                 disk.activeHistory, DS.Palette.disk)
+        }
+
+        ForEach(monitor.networks) { network in
+            tile(.network(network.id), network.displayName,
+                 [network.id, "S: \(Theme.bitRate(network.sendRate))  R: \(Theme.bitRate(network.receiveRate))"],
+                 network.receiveHistory, DS.Palette.network,
+                 secondary: network.sendHistory, maxValue: networkScale(network))
+        }
+
+        ForEach(monitor.gpus) { gpu in
+            tile(.gpu(gpu.id), "GPU \(gpu.id)", [gpu.reading.name, gpuSubtitle(gpu)], gpu.history, DS.Palette.gpu)
+        }
+    }
+
+    private func tile(_ resource: Resource, _ title: String, _ lines: [String], _ values: [Double], _ color: Color,
+                      secondary: [Double]? = nil, maxValue: Double = 1) -> some View {
+        ResourceTile(title: title, lines: lines, values: values, color: color, secondary: secondary,
+                     maxValue: maxValue, isSelected: selection == resource)
+            .onTapGesture { selection = resource }
     }
 
     private var cpuSubtitle: String {
-        var text = Theme.percent(monitor.currentTotal)
-        if let celsius = monitor.temperature.cpu {
-            text += "  \(Theme.temperature(celsius))"
-        }
-        return text
+        let temperature = monitor.temperature.cpu.map { "  \(Theme.temperature($0))" } ?? ""
+        return Theme.percent(monitor.currentTotal) + temperature
     }
+
+    private func gpuSubtitle(_ gpu: GPUState) -> String {
+        let temperature = monitor.temperature.gpu.map { " (\(Theme.temperature($0)))" } ?? ""
+        return Theme.percent(gpu.reading.utilization) + temperature
+    }
+
+    private func networkScale(_ network: NetworkState) -> Double {
+        Theme.niceScale(max(network.receiveHistory.max() ?? 0, network.sendHistory.max() ?? 0), minimum: 12_500)
+    }
+
+    // MARK: Detail
 
     @ViewBuilder
     private var detail: some View {
         switch selection {
-        case .some(.memory):
+        case .memory:
             MemoryDetailView()
-        case .some(.disk(let id)):
-            if let disk = monitor.disks.first(where: { $0.id == id }) {
-                DiskDetailView(disk: disk, index: monitor.disks.firstIndex { $0.id == id } ?? 0)
+        case .disk(let id):
+            if let index = monitor.disks.firstIndex(where: { $0.id == id }) {
+                DiskDetailView(disk: monitor.disks[index], index: index)
             } else {
                 CPUDetailView()
             }
-        case .some(.network(let id)):
+        case .network(let id):
             if let network = monitor.networks.first(where: { $0.id == id }) {
-                NetworkDetailView(network: network)
+                NetworkDetailView(network: network, scale: networkScale(network))
             } else {
                 CPUDetailView()
             }
-        case .some(.gpu(let index)) where index < monitor.gpus.count:
+        case .gpu(let index) where index < monitor.gpus.count:
             GPUDetailView(gpu: monitor.gpus[index])
         default:
             CPUDetailView()
@@ -104,27 +113,34 @@ struct PerformanceView: View {
     }
 }
 
-private struct SidebarRow: View {
+/// Windows-style resource tile: boxed mini graph, title, and one or two detail lines.
+private struct ResourceTile: View {
     var title: String
-    var subtitle: String
+    var lines: [String]
     var values: [Double]
     var color: Color
-    var secondary: [Double]? = nil
-    var maxValue: Double = 1
+    var secondary: [Double]?
+    var maxValue: Double
+    var isSelected: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: DS.Space.m) {
             UsageGraph(values: values, color: color, secondary: secondary, maxValue: maxValue, showsGrid: false)
-                .frame(width: 64, height: 40)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline).lineLimit(1)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .monospacedDigit()
+                .frame(width: DS.Size.tileGraph.width, height: DS.Size.tileGraph.height)
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                Text(title).font(DS.Typeface.tileTitle)
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(DS.Typeface.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
             }
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
+        .padding(DS.Space.s)
+        .rowHighlight(isSelected: isSelected)
     }
 }

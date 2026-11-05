@@ -1,12 +1,7 @@
-import SwiftUI
+import Foundation
 
+/// Number formatting shared by every page.
 enum Theme {
-    static let cpu = Color(red: 0.07, green: 0.49, blue: 0.73)
-    static let memory = Color(red: 0.55, green: 0.15, blue: 0.70)
-    static let disk = Color(red: 0.30, green: 0.62, blue: 0.08)
-    static let network = Color(red: 0.75, green: 0.40, blue: 0.05)
-    static let gpu = Color(red: 0.0, green: 0.55, blue: 0.55)
-
     static func percent(_ value: Double?) -> String {
         guard let value, value >= 0 else { return "N/A" }
         return "\(Int((value * 100).rounded()))%"
@@ -22,28 +17,34 @@ enum Theme {
         return ByteCountFormatter.string(fromByteCount: Int64(value), countStyle: .memory)
     }
 
-    static func gigabytes(_ value: UInt64) -> String {
-        String(format: "%.1f GB", Double(value) / 1_073_741_824)
+    static func gigabytes(_ value: UInt64, unit: Bool = true) -> String {
+        String(format: unit ? "%.1f GB" : "%.1f", Double(value) / 1_073_741_824)
     }
 
-    /// Bytes per second, e.g. "12.3 MB/s".
-    static func byteRate(_ value: Double) -> String {
-        rateFormatter.string(fromByteCount: Int64(value)) + "/s"
+    static func megabytes(_ value: UInt64) -> String {
+        String(format: "%.1f MB", Double(value) / 1_048_576)
     }
 
-    // Plain ByteCountFormatter prints "Zero KB" for 0.
+    static func megabyteRate(_ value: Double) -> String {
+        String(format: "%.1f MB/s", value / 1_048_576)
+    }
+
     private static let rateFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
-        formatter.allowsNonnumericFormatting = false
+        formatter.allowsNonnumericFormatting = false // "0 bytes/s", not "Zero KB/s"
         return formatter
     }()
 
+    /// Bytes per second, e.g. "12.3 MB/s".
+    static func byteRate(_ value: Double) -> String {
+        rateFormatter.string(fromByteCount: Int64(max(value, 0))) + "/s"
+    }
+
     /// Bytes per second shown as bits, e.g. "4.2 Mbps", like Windows does for networks.
     static func bitRate(_ bytesPerSecond: Double) -> String {
-        let bits = bytesPerSecond * 8
+        var value = max(bytesPerSecond, 0) * 8
         let units = ["bps", "Kbps", "Mbps", "Gbps"]
-        var value = bits
         var unit = 0
         while value >= 1000, unit < units.count - 1 {
             value /= 1000

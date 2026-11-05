@@ -5,34 +5,36 @@ struct GPUDetailView: View {
     var gpu: GPUState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            DetailHeader(title: "GPU", subtitle: gpu.reading.name)
+        VStack(alignment: .leading, spacing: DS.Space.m) {
+            ResourceHeader(title: "GPU", subtitle: gpu.reading.name)
 
-            LabeledGraph(title: "Utilization", values: gpu.history, color: Theme.gpu)
+            LabeledGraph(title: "Utilization", values: gpu.history, color: DS.Palette.gpu)
 
             // Apple Silicon also reports the renderer (3D) and tiler stages separately.
             if gpu.reading.renderer != nil || gpu.reading.tiler != nil {
-                HStack(spacing: 16) {
-                    LabeledGraph(title: "Renderer", values: gpu.rendererHistory, color: Theme.gpu)
-                    LabeledGraph(title: "Tiler", values: gpu.tilerHistory, color: Theme.gpu)
+                HStack(spacing: DS.Space.l) {
+                    LabeledGraph(title: "Renderer", values: gpu.rendererHistory, color: DS.Palette.gpu)
+                    LabeledGraph(title: "Tiler", values: gpu.tilerHistory, color: DS.Palette.gpu)
                 }
-                .frame(height: 140)
+                .frame(height: 130)
             }
 
-            HStack(alignment: .top, spacing: 28) {
-                Stat(label: "Utilization", value: Theme.percent(gpu.reading.utilization), large: true)
-                Stat(label: "GPU memory in use", value: Theme.bytes(gpu.reading.memoryInUse), large: true)
-                if let celsius = monitor.temperature.gpu {
-                    Stat(label: "Temperature", value: Theme.temperature(celsius), large: true)
-                } else if let celsius = monitor.temperature.cpu {
-                    // Newer chips (e.g. M5) expose only shared SoC die sensors, no GPU-specific one.
-                    Stat(label: "SoC temperature", value: Theme.temperature(celsius), large: true)
+            StatsArea(info: infoRows) {
+                GridRow {
+                    Stat(label: "Utilization", value: Theme.percent(gpu.reading.utilization))
+                    Stat(label: "GPU memory in use", value: Theme.bytes(gpu.reading.memoryInUse))
+                    Stat(label: monitor.temperature.gpuIsSoC ? "SoC temperature" : "GPU temperature",
+                         value: Theme.temperature(monitor.temperature.gpu))
                 }
-                if let cores = gpu.reading.coreCount {
-                    Stat(label: "GPU cores", value: "\(cores)", large: true)
-                }
-                Spacer()
             }
         }
+    }
+
+    private var infoRows: [(String, String)] {
+        var rows: [(String, String)] = []
+        if let cores = gpu.reading.coreCount { rows.append(("GPU cores:", "\(cores)")) }
+        rows.append(("Renderer:", Theme.percent(gpu.reading.renderer)))
+        rows.append(("Tiler:", Theme.percent(gpu.reading.tiler)))
+        return rows
     }
 }

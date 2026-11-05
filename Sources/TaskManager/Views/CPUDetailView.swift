@@ -11,51 +11,43 @@ struct CPUDetailView: View {
     @AppStorage("cpuGraphMode") private var mode: Mode = .logical
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            DetailHeader(title: "CPU", subtitle: SystemInfo.cpuName)
+        VStack(alignment: .leading, spacing: DS.Space.m) {
+            ResourceHeader(title: "CPU", subtitle: SystemInfo.cpuName)
 
-            HStack {
-                Text("% Utilization over \(PerformanceMonitor.historyLength) seconds")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Picker("Graph", selection: $mode) {
-                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+            VStack(spacing: DS.Space.xs) {
+                CaptionRow(leading: "% Utilization over \(PerformanceMonitor.historyLength) seconds", trailing: "100%")
+                Group {
+                    switch mode {
+                    case .overall:
+                        UsageGraph(values: monitor.totalHistory, color: DS.Palette.cpu)
+                    case .logical:
+                        GroupedCoreGrid(groups: monitor.coreGroups, histories: monitor.coreHistories)
+                    }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
+                // Same as Windows: right-click the graph to switch views.
+                .contextMenu {
+                    Picker("Change graph to", selection: $mode) {
+                        ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.inline)
+                }
+                CaptionRow(leading: "Right-click to change graph", trailing: "0")
             }
 
-            switch mode {
-            case .overall:
-                UsageGraph(values: monitor.totalHistory, color: Theme.cpu)
-            case .logical:
-                GroupedCoreGrid(groups: monitor.coreGroups, histories: monitor.coreHistories)
-            }
-
-            stats
-        }
-    }
-
-    private var stats: some View {
-        HStack(alignment: .top, spacing: 40) {
-            Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
+            StatsArea(info: infoRows) {
                 GridRow {
-                    Stat(label: "Utilization", value: Theme.percent(monitor.currentTotal), large: true)
-                    Stat(label: "Temperature", value: Theme.temperature(monitor.temperature.cpu), large: true)
-                    Stat(label: "Processes", value: "\(monitor.processCount)", large: true)
+                    Stat(label: "Utilization", value: Theme.percent(monitor.currentTotal))
+                    Stat(label: "Temperature", value: Theme.temperature(monitor.temperature.cpu))
+                    Stat(label: "Processes", value: "\(monitor.processCount)")
                 }
                 GridRow {
                     ForEach(monitor.coreGroups.prefix(2)) { group in
                         Stat(label: monitor.coreGroups.count > 1 ? "\(group.name) cores" : "All cores",
-                             value: Theme.percent(monitor.utilization(of: group)), large: true)
+                             value: Theme.percent(monitor.utilization(of: group)))
                     }
-                    Stat(label: "Up time", value: Theme.uptime(monitor.uptime), large: true)
+                    Stat(label: "Up time", value: Theme.uptime(monitor.uptime))
                 }
             }
-            InfoList(rows: infoRows)
-            Spacer()
         }
     }
 
@@ -86,15 +78,15 @@ extension ProcessInfo.ThermalState {
     }
 }
 
-/// One section per core type (e.g. Performance, Efficiency), each a grid of per-core graphs,
+/// One section per core type (e.g. Super, Performance), each a grid of per-core graphs,
 /// sized to fill the available space.
 private struct GroupedCoreGrid: View {
     var groups: [CoreGroup]
     var histories: [[Double]]
 
-    private let spacing: CGFloat = 6
+    private let spacing: CGFloat = DS.Space.xs
     private let headerHeight: CGFloat = 16
-    private let sectionSpacing: CGFloat = 10
+    private let sectionSpacing: CGFloat = DS.Space.m
 
     var body: some View {
         GeometryReader { proxy in
@@ -102,7 +94,7 @@ private struct GroupedCoreGrid: View {
             let rows = groups.map { rowCount(for: $0, columns: columns) }
             let totalRows = max(rows.reduce(0, +), 1)
             let showHeaders = groups.count > 1
-            let fixed = (showHeaders ? CGFloat(groups.count) * (headerHeight + 4) : 0)
+            let fixed = (showHeaders ? CGFloat(groups.count) * (headerHeight + DS.Space.xs) : 0)
                 + sectionSpacing * CGFloat(groups.count - 1)
                 + spacing * CGFloat(max(totalRows - groups.count, 0))
             let cellHeight = max((proxy.size.height - fixed) / CGFloat(totalRows), 20)
@@ -110,12 +102,10 @@ private struct GroupedCoreGrid: View {
 
             VStack(alignment: .leading, spacing: sectionSpacing) {
                 ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: DS.Space.xs) {
                         if showHeaders {
-                            Text("\(group.name) cores (\(group.cores.count))  \(Theme.percent(average(group)))")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .frame(height: headerHeight)
+                            CaptionRow(leading: "\(group.name) cores (\(group.cores.count))", trailing: Theme.percent(average(group)))
+                                .frame(width: proxy.size.width, height: headerHeight)
                         }
                         cells(for: group, rows: rows[index], columns: columns, width: cellWidth, height: cellHeight)
                     }
@@ -132,16 +122,9 @@ private struct GroupedCoreGrid: View {
                         let position = row * columns + column
                         if position < group.cores.count {
                             let core = group.cores[position]
-                            let values = core < histories.count ? histories[core] : []
-                            UsageGraph(values: values, color: Theme.cpu)
-                                .overlay(alignment: .topLeading) {
-                                    Text("CPU \(core)  \(Theme.percent(values.last))")
-                                        .font(.caption2)
-                                        .monospacedDigit()
-                                        .foregroundStyle(.secondary)
-                                        .padding(4)
-                                }
+                            UsageGraph(values: core < histories.count ? histories[core] : [], color: DS.Palette.cpu)
                                 .frame(width: width, height: height)
+                                .help("CPU \(core)")
                         }
                     }
                 }

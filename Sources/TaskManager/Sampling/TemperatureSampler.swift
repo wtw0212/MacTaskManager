@@ -19,8 +19,10 @@ private func IOHIDEventGetFloatValue(_ event: CFTypeRef, _ field: Int32) -> Doub
 struct TemperatureReading {
     /// Hottest CPU sensor in °C (on M2 and later: hottest SoC die sensor).
     var cpu: Double?
-    /// Hottest GPU sensor in °C, when the chip exposes one.
+    /// GPU temperature in °C: SMC "Tg" sensors, else HID GPU sensors, else the SoC reading.
     var gpu: Double?
+    /// True when `gpu` is the shared SoC die reading because no GPU-only sensor exists.
+    var gpuIsSoC = false
     var sensors: [(name: String, celsius: Double)] = []
 }
 
@@ -30,6 +32,7 @@ final class TemperatureSampler {
 
     private var client: CFTypeRef?
     private var services: [(name: String, service: CFTypeRef)] = []
+    private let smc = SMC()
 
     init() {
         guard let client = IOHIDEventSystemClientCreate(kCFAllocatorDefault)?.takeRetainedValue() else { return }
@@ -63,9 +66,12 @@ final class TemperatureSampler {
         let dieSensors = sensors.filter { $0.name.contains("tdie") }
         let gpuSensors = sensors.filter { $0.name.contains("GPU MTR") }
 
+        let cpu = (cpuSensors.isEmpty ? dieSensors : cpuSensors).map(\.celsius).max()
+        let gpu = smc?.gpuTemperature() ?? gpuSensors.map(\.celsius).max()
         return TemperatureReading(
-            cpu: (cpuSensors.isEmpty ? dieSensors : cpuSensors).map(\.celsius).max(),
-            gpu: gpuSensors.map(\.celsius).max(),
+            cpu: cpu,
+            gpu: gpu ?? cpu,
+            gpuIsSoC: gpu == nil && cpu != nil,
             sensors: sensors.sorted { $0.name < $1.name }
         )
     }

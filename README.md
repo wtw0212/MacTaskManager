@@ -57,3 +57,7 @@ Sources/TaskManager/
   Sampling/                   CPU, GPU and system samplers, PerformanceMonitor (1 s timer, 60 s history)
   Views/                      Sidebar, CPU and GPU detail views, the graph view
 ```
+
+## Icons
+
+UI icons are [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) by Microsoft, MIT License (see `LICENSES/FluentUI-System-Icons.txt`). `scripts/generate-fluent-icons.py` turns their SVGs into SwiftUI shapes in `Views/FluentIcons.swift`; to add one, add it to `ICONS` in the script and rerun it on the `@fluentui/svg-icons` package.

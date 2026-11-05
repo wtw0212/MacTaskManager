@@ -10,9 +10,9 @@ struct TaskManagerApp: App {
         WindowGroup("Task Manager") {
             ContentView()
                 .environmentObject(monitor)
-                .frame(minWidth: 960, minHeight: 640)
+                .frame(minWidth: 980, minHeight: 660)
         }
-        .windowToolbarStyle(.unified(showsTitle: true))
+        .windowStyle(.hiddenTitleBar)
     }
 }
 

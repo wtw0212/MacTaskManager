@@ -19,7 +19,11 @@ struct StartupItem: Identifiable {
     var isRunning: Bool
 
     var name: String {
-        program.map { ($0 as NSString).lastPathComponent } ?? label
+        guard let program else { return label }
+        if let app = program.components(separatedBy: "/").first(where: { $0.hasSuffix(".app") }) {
+            return String(app.dropLast(4))
+        }
+        return (program as NSString).lastPathComponent
     }
 
     /// Developer guess from a reverse-DNS label, e.g. "com.google.keystone.agent" -> "google".
@@ -54,9 +58,11 @@ enum StartupScanner {
                       let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
                       let label = plist["Label"] as? String else { continue }
 
+                // Prefer the .app an `open -a …` style agent launches over the launcher itself.
                 let arguments = plist["ProgramArguments"] as? [String] ?? []
-                // For launchers like `/usr/bin/open -a /Applications/X.app/...`, name the app, not `open`.
-                let program = plist["Program"] as? String ?? arguments.first { $0.contains(".app/") } ?? arguments.first
+                let program = plist["Program"] as? String
+                    ?? arguments.first { $0.contains(".app/") || $0.hasSuffix(".app") }
+                    ?? arguments.first
                 let keepAlive: Bool = {
                     if let flag = plist["KeepAlive"] as? Bool { return flag }
                     return plist["KeepAlive"] is [String: Any]
