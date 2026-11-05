@@ -1,15 +1,12 @@
 import SwiftUI
 
 struct GPUDetailView: View {
+    @EnvironmentObject private var monitor: PerformanceMonitor
     var gpu: GPUState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("GPU").font(.largeTitle)
-                Spacer()
-                Text(gpu.reading.name).font(.title3).foregroundStyle(.secondary)
-            }
+            DetailHeader(title: "GPU", subtitle: gpu.reading.name)
 
             LabeledGraph(title: "Utilization", values: gpu.history, color: Theme.gpu)
 
@@ -25,6 +22,9 @@ struct GPUDetailView: View {
             HStack(alignment: .top, spacing: 28) {
                 Stat(label: "Utilization", value: Theme.percent(gpu.reading.utilization), large: true)
                 Stat(label: "GPU memory in use", value: Theme.bytes(gpu.reading.memoryInUse), large: true)
+                if let celsius = monitor.temperature.gpu {
+                    Stat(label: "Temperature", value: Theme.temperature(celsius), large: true)
+                }
                 if let cores = gpu.reading.coreCount {
                     Stat(label: "GPU cores", value: "\(cores)", large: true)
                 }

@@ -8,9 +8,9 @@ struct TaskManagerApp: App {
 
     var body: some Scene {
         WindowGroup("Task Manager") {
-            PerformanceView()
+            ContentView()
                 .environmentObject(monitor)
-                .frame(minWidth: 860, minHeight: 580)
+                .frame(minWidth: 960, minHeight: 640)
         }
         .windowToolbarStyle(.unified(showsTitle: true))
     }

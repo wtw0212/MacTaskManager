@@ -9,24 +9,75 @@ struct GPUState: Identifiable {
     var tilerHistory: [Double]
 }
 
-/// Samples CPU and GPU once per second and keeps the last 60 seconds of each.
+struct DiskState: Identifiable {
+    var id: String { counters.bsdName }
+    var counters: DiskCounters
+    /// Share of the last interval the disk was busy, 0...1.
+    var activeTime: Double = 0
+    var readRate: Double = 0
+    var writeRate: Double = 0
+    var activeHistory = PerformanceMonitor.emptyHistory
+    var readHistory = PerformanceMonitor.emptyHistory
+    var writeHistory = PerformanceMonitor.emptyHistory
+}
+
+struct NetworkState: Identifiable {
+    var id: String { counters.bsdName }
+    var counters: NetworkCounters
+    var displayName: String
+    var ipv4: String?
+    var ipv6: String?
+    /// Bytes per second.
+    var receiveRate: Double = 0
+    var sendRate: Double = 0
+    var receiveHistory = PerformanceMonitor.emptyHistory
+    var sendHistory = PerformanceMonitor.emptyHistory
+}
+
+/// Samples everything once per second and keeps the last 60 seconds of each graph.
 @MainActor
 final class PerformanceMonitor: ObservableObject {
-    static let historyLength = 60
+    nonisolated static let historyLength = 60
+    nonisolated static let emptyHistory = Array(repeating: 0.0, count: 60)
 
+    // CPU
+    let coreGroups: [CoreGroup]
     @Published private(set) var coreHistories: [[Double]] = []
-    @Published private(set) var totalHistory: [Double] = []
-    @Published private(set) var gpus: [GPUState] = []
+    @Published private(set) var totalHistory: [Double] = emptyHistory
+    @Published private(set) var temperature = TemperatureReading()
+    @Published private(set) var thermalState = ProcessInfo.processInfo.thermalState
     @Published private(set) var processCount = 0
     @Published private(set) var uptime: TimeInterval = 0
 
+    // Memory
+    @Published private(set) var memory: MemoryReading?
+    @Published private(set) var memoryHistory: [Double] = emptyHistory
+
+    // Disk, network, GPU
+    @Published private(set) var disks: [DiskState] = []
+    @Published private(set) var networks: [NetworkState] = []
+    @Published private(set) var gpus: [GPUState] = []
+    @Published private(set) var startupVolume: (available: UInt64, total: UInt64)?
+
+    // Processes (only sampled while the Processes tab is open)
+    @Published private(set) var processes: [ProcessRow] = []
+    var samplesProcesses = false {
+        didSet { if samplesProcesses && !oldValue { processes = processSampler.sample() } }
+    }
+
     private let cpu = CPUSampler()
+    private let temperatureSampler = TemperatureSampler()
+    private let processSampler = ProcessSampler()
+    private var interfaceNames: [String: String] = NetworkSampler.displayNames()
+    private var lastTick = Date()
+    private var tickCount = 0
     private var timer: AnyCancellable?
 
     init() {
-        let empty = Array(repeating: 0.0, count: Self.historyLength)
-        coreHistories = Array(repeating: empty, count: cpu.coreCount)
-        totalHistory = empty
+        coreGroups = CoreTopology.groups(logicalCount: cpu.coreCount)
+        coreHistories = Array(repeating: Self.emptyHistory, count: cpu.coreCount)
+        disks = DiskSampler.read().map { DiskState(counters: $0) }
+        networks = NetworkSampler.read().map { NetworkState(counters: $0, displayName: $0.bsdName) }
         tick()
         timer = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
@@ -35,35 +86,117 @@ final class PerformanceMonitor: ObservableObject {
 
     var currentTotal: Double { totalHistory.last ?? 0 }
 
+    func utilization(of group: CoreGroup) -> Double {
+        let values = group.cores.compactMap { $0 < coreHistories.count ? coreHistories[$0].last : nil }
+        return values.isEmpty ? 0 : values.reduce(0, +) / Double(values.count)
+    }
+
+    func refreshProcesses() {
+        processes = processSampler.sample()
+    }
+
     private func tick() {
-        let cores = cpu.sample()
-        if !cores.isEmpty {
-            if coreHistories.count != cores.count {
-                coreHistories = Array(repeating: Array(repeating: 0, count: Self.historyLength), count: cores.count)
-            }
-            for (index, value) in cores.enumerated() {
-                Self.push(value, onto: &coreHistories[index])
-            }
-            Self.push(cores.reduce(0, +) / Double(cores.count), onto: &totalHistory)
+        let now = Date()
+        let elapsed = max(now.timeIntervalSince(lastTick), 0.001)
+        lastTick = now
+        tickCount += 1
+
+        sampleCPU()
+        temperature = temperatureSampler.sample()
+        thermalState = ProcessInfo.processInfo.thermalState
+
+        if let reading = MemorySampler.sample() {
+            memory = reading
+            Self.push(reading.usedFraction, onto: &memoryHistory)
         }
 
+        sampleDisks(elapsed: elapsed)
+        sampleNetworks(elapsed: elapsed)
+        sampleGPUs()
+
+        if tickCount % 10 == 1 {
+            startupVolume = DiskSampler.startupVolume()
+            interfaceNames = NetworkSampler.displayNames()
+        }
+        if samplesProcesses {
+            processes = processSampler.sample()
+        }
+
+        processCount = SystemInfo.processCount()
+        uptime = SystemInfo.bootTime.map { now.timeIntervalSince($0) } ?? ProcessInfo.processInfo.systemUptime
+    }
+
+    private func sampleCPU() {
+        let cores = cpu.sample()
+        guard !cores.isEmpty else { return }
+        if coreHistories.count != cores.count {
+            coreHistories = Array(repeating: Self.emptyHistory, count: cores.count)
+        }
+        for (index, value) in cores.enumerated() {
+            Self.push(value, onto: &coreHistories[index])
+        }
+        Self.push(cores.reduce(0, +) / Double(cores.count), onto: &totalHistory)
+    }
+
+    private func sampleDisks(elapsed: TimeInterval) {
+        let previous = Dictionary(disks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        disks = DiskSampler.read().map { counters in
+            guard var state = previous[counters.bsdName] else { return DiskState(counters: counters) }
+            let old = state.counters
+            state.counters = counters
+            state.readRate = Double(counters.bytesRead &- old.bytesRead) / elapsed
+            state.writeRate = Double(counters.bytesWritten &- old.bytesWritten) / elapsed
+            if counters.bytesRead < old.bytesRead { state.readRate = 0 }
+            if counters.bytesWritten < old.bytesWritten { state.writeRate = 0 }
+            let busy = counters.busyTime >= old.busyTime ? Double(counters.busyTime - old.busyTime) : 0
+            state.activeTime = min(busy / (elapsed * 1_000_000_000), 1)
+            Self.push(state.activeTime, onto: &state.activeHistory)
+            Self.push(state.readRate, onto: &state.readHistory)
+            Self.push(state.writeRate, onto: &state.writeHistory)
+            return state
+        }
+    }
+
+    private func sampleNetworks(elapsed: TimeInterval) {
+        let previous = Dictionary(networks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let addresses = NetworkSampler.addresses()
+        networks = NetworkSampler.read()
+            .filter { Self.isUserFacing($0.bsdName) && (addresses[$0.bsdName] != nil || $0.bytesIn + $0.bytesOut > 0) }
+            .map { counters in
+                var state = previous[counters.bsdName]
+                    ?? NetworkState(counters: counters, displayName: counters.bsdName)
+                let old = state.counters
+                state.counters = counters
+                state.displayName = interfaceNames[counters.bsdName] ?? counters.bsdName
+                state.ipv4 = addresses[counters.bsdName]?.ipv4
+                state.ipv6 = addresses[counters.bsdName]?.ipv6
+                state.receiveRate = counters.bytesIn >= old.bytesIn ? Double(counters.bytesIn - old.bytesIn) / elapsed : 0
+                state.sendRate = counters.bytesOut >= old.bytesOut ? Double(counters.bytesOut - old.bytesOut) / elapsed : 0
+                Self.push(state.receiveRate, onto: &state.receiveHistory)
+                Self.push(state.sendRate, onto: &state.sendHistory)
+                return state
+            }
+            .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+    }
+
+    /// Ethernet/Wi-Fi ("en") and cellular; hides loopback, AirDrop, VPN tunnels and bridges.
+    private static func isUserFacing(_ name: String) -> Bool {
+        name.hasPrefix("en") || name.hasPrefix("pdp_ip")
+    }
+
+    private func sampleGPUs() {
         let readings = GPUSampler.sample()
-        var updated: [GPUState] = []
-        for (index, reading) in readings.enumerated() {
-            let empty = Array(repeating: 0.0, count: Self.historyLength)
+        gpus = readings.enumerated().map { index, reading in
             var state = index < gpus.count
                 ? gpus[index]
-                : GPUState(id: index, reading: reading, history: empty, rendererHistory: empty, tilerHistory: empty)
+                : GPUState(id: index, reading: reading, history: Self.emptyHistory,
+                           rendererHistory: Self.emptyHistory, tilerHistory: Self.emptyHistory)
             state.reading = reading
             Self.push(reading.utilization ?? 0, onto: &state.history)
             Self.push(reading.renderer ?? 0, onto: &state.rendererHistory)
             Self.push(reading.tiler ?? 0, onto: &state.tilerHistory)
-            updated.append(state)
+            return state
         }
-        gpus = updated
-
-        processCount = SystemInfo.processCount()
-        uptime = SystemInfo.bootTime.map { Date().timeIntervalSince($0) } ?? ProcessInfo.processInfo.systemUptime
     }
 
     private static func push(_ value: Double, onto history: inout [Double]) {

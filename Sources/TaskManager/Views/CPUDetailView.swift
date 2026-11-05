@@ -12,11 +12,7 @@ struct CPUDetailView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("CPU").font(.largeTitle)
-                Spacer()
-                Text(SystemInfo.cpuName).font(.title3).foregroundStyle(.secondary)
-            }
+            DetailHeader(title: "CPU", subtitle: SystemInfo.cpuName)
 
             HStack {
                 Text("% Utilization over \(PerformanceMonitor.historyLength) seconds")
@@ -35,7 +31,7 @@ struct CPUDetailView: View {
             case .overall:
                 UsageGraph(values: monitor.totalHistory, color: Theme.cpu)
             case .logical:
-                CoreGrid(histories: monitor.coreHistories)
+                GroupedCoreGrid(groups: monitor.coreGroups, histories: monitor.coreHistories)
             }
 
             stats
@@ -47,67 +43,105 @@ struct CPUDetailView: View {
             Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
                 GridRow {
                     Stat(label: "Utilization", value: Theme.percent(monitor.currentTotal), large: true)
+                    Stat(label: "Temperature", value: Theme.temperature(monitor.temperature.cpu), large: true)
                     Stat(label: "Processes", value: "\(monitor.processCount)", large: true)
                 }
                 GridRow {
+                    ForEach(monitor.coreGroups.prefix(2)) { group in
+                        Stat(label: monitor.coreGroups.count > 1 ? "\(group.name) cores" : "All cores",
+                             value: Theme.percent(monitor.utilization(of: group)), large: true)
+                    }
                     Stat(label: "Up time", value: Theme.uptime(monitor.uptime), large: true)
-                        .gridCellColumns(2)
                 }
             }
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
-                if let performance = SystemInfo.performanceCores, let efficiency = SystemInfo.efficiencyCores {
-                    info("Performance cores:", "\(performance)")
-                    info("Efficiency cores:", "\(efficiency)")
-                } else if let cores = SystemInfo.physicalCores {
-                    info("Cores:", "\(cores)")
-                }
-                info("Logical processors:", "\(monitor.coreHistories.count)")
-            }
-            .font(.callout)
+            InfoList(rows: infoRows)
             Spacer()
         }
     }
 
-    private func info(_ label: String, _ value: String) -> some View {
-        GridRow {
-            Text(label).foregroundStyle(.secondary)
-            Text(value)
+    private var infoRows: [(String, String)] {
+        var rows: [(String, String)] = []
+        if monitor.coreGroups.count > 1 {
+            for group in monitor.coreGroups {
+                rows.append(("\(group.name) cores:", "\(group.cores.count)"))
+            }
+        } else if let cores = SystemInfo.physicalCores {
+            rows.append(("Cores:", "\(cores)"))
+        }
+        rows.append(("Logical processors:", "\(monitor.coreHistories.count)"))
+        rows.append(("Thermal state:", monitor.thermalState.label))
+        return rows
+    }
+}
+
+extension ProcessInfo.ThermalState {
+    var label: String {
+        switch self {
+        case .nominal: "Normal"
+        case .fair: "Fair"
+        case .serious: "Serious (throttling)"
+        case .critical: "Critical"
+        @unknown default: "Unknown"
         }
     }
 }
 
-/// Fills the available space with one small graph per logical core.
-private struct CoreGrid: View {
+/// One section per core type (e.g. Performance, Efficiency), each a grid of per-core graphs,
+/// sized to fill the available space.
+private struct GroupedCoreGrid: View {
+    var groups: [CoreGroup]
     var histories: [[Double]]
+
     private let spacing: CGFloat = 6
+    private let headerHeight: CGFloat = 16
+    private let sectionSpacing: CGFloat = 10
 
     var body: some View {
         GeometryReader { proxy in
-            let count = max(histories.count, 1)
-            let grid = layout(count: count, size: proxy.size)
-            let columns = grid.columns
-            let rows = grid.rows
-            let width = (proxy.size.width - spacing * CGFloat(columns - 1)) / CGFloat(columns)
-            let height = (proxy.size.height - spacing * CGFloat(rows - 1)) / CGFloat(rows)
+            let columns = bestColumnCount(for: proxy.size)
+            let rows = groups.map { rowCount(for: $0, columns: columns) }
+            let totalRows = max(rows.reduce(0, +), 1)
+            let showHeaders = groups.count > 1
+            let fixed = (showHeaders ? CGFloat(groups.count) * (headerHeight + 4) : 0)
+                + sectionSpacing * CGFloat(groups.count - 1)
+                + spacing * CGFloat(max(totalRows - groups.count, 0))
+            let cellHeight = max((proxy.size.height - fixed) / CGFloat(totalRows), 20)
+            let cellWidth = (proxy.size.width - spacing * CGFloat(columns - 1)) / CGFloat(columns)
 
-            VStack(spacing: spacing) {
-                ForEach(0..<rows, id: \.self) { row in
-                    HStack(spacing: spacing) {
-                        ForEach(0..<columns, id: \.self) { column in
-                            let index = row * columns + column
-                            if index < histories.count {
-                                UsageGraph(values: histories[index], color: Theme.cpu)
-                                    .overlay(alignment: .topLeading) {
-                                        Text("CPU \(index)  \(Theme.percent(histories[index].last))")
-                                            .font(.caption2)
-                                            .monospacedDigit()
-                                            .foregroundStyle(.secondary)
-                                            .padding(4)
-                                    }
-                                    .frame(width: width, height: height)
-                            } else {
-                                Color.clear.frame(width: width, height: height)
-                            }
+            VStack(alignment: .leading, spacing: sectionSpacing) {
+                ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                    VStack(alignment: .leading, spacing: 4) {
+                        if showHeaders {
+                            Text("\(group.name) cores (\(group.cores.count))  \(Theme.percent(average(group)))")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(height: headerHeight)
+                        }
+                        cells(for: group, rows: rows[index], columns: columns, width: cellWidth, height: cellHeight)
+                    }
+                }
+            }
+        }
+    }
+
+    private func cells(for group: CoreGroup, rows: Int, columns: Int, width: CGFloat, height: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            ForEach(0..<rows, id: \.self) { row in
+                HStack(spacing: spacing) {
+                    ForEach(0..<columns, id: \.self) { column in
+                        let position = row * columns + column
+                        if position < group.cores.count {
+                            let core = group.cores[position]
+                            let values = core < histories.count ? histories[core] : []
+                            UsageGraph(values: values, color: Theme.cpu)
+                                .overlay(alignment: .topLeading) {
+                                    Text("CPU \(core)  \(Theme.percent(values.last))")
+                                        .font(.caption2)
+                                        .monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                        .padding(4)
+                                }
+                                .frame(width: width, height: height)
                         }
                     }
                 }
@@ -115,18 +149,28 @@ private struct CoreGrid: View {
         }
     }
 
-    /// Picks the column count that makes each cell closest to the graph's 2:1 shape.
-    private func layout(count: Int, size: CGSize) -> (columns: Int, rows: Int) {
-        guard size.width > 0, size.height > 0 else { return (count, 1) }
-        var best = (columns: count, rows: 1)
+    private func average(_ group: CoreGroup) -> Double {
+        let values = group.cores.compactMap { $0 < histories.count ? histories[$0].last : nil }
+        return values.isEmpty ? 0 : values.reduce(0, +) / Double(values.count)
+    }
+
+    private func rowCount(for group: CoreGroup, columns: Int) -> Int {
+        Int((Double(group.cores.count) / Double(columns)).rounded(.up))
+    }
+
+    /// Picks the column count that makes each cell closest to a 2:1 shape.
+    private func bestColumnCount(for size: CGSize) -> Int {
+        let largest = max(groups.map(\.cores.count).max() ?? 1, 1)
+        guard size.width > 0, size.height > 0 else { return largest }
+        var best = largest
         var bestScore = Double.infinity
-        for columns in 1...count {
-            let rows = Int((Double(count) / Double(columns)).rounded(.up))
-            let aspect = (size.width / CGFloat(columns)) / (size.height / CGFloat(rows))
+        for columns in 1...largest {
+            let rows = groups.map { rowCount(for: $0, columns: columns) }.reduce(0, +)
+            let aspect = (size.width / CGFloat(columns)) / (size.height / CGFloat(max(rows, 1)))
             let score = abs(log(Double(aspect) / 2))
             if score < bestScore {
                 bestScore = score
-                best = (columns, rows)
+                best = columns
             }
         }
         return best

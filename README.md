@@ -1,9 +1,15 @@
 # Task Manager for macOS
 
-A native macOS app, written in Swift and SwiftUI, that recreates the Performance tab of the Windows Task Manager.
+A native macOS app, written in Swift and SwiftUI, modelled on the Windows Task Manager.
 
-- **CPU:** a live 60-second graph for every logical core (or one overall graph), utilization, process count, up time, and performance/efficiency core counts.
-- **GPU:** a live utilization graph per GPU, plus renderer and tiler graphs on Apple Silicon, GPU memory in use and GPU core count.
+- **Processes:** every process with CPU, memory and thread count, filters for apps and background processes, search, End task and Force quit.
+- **Performance:**
+  - **CPU:** a live 60-second graph per logical core, grouped by core type using Apple's own names (for example Performance and Efficiency), utilization per group, temperature, thermal state, process count and up time.
+  - **Memory:** usage graph, composition bar, app/wired/compressed/cached memory, swap and memory pressure.
+  - **Disk:** per physical disk, active time and read/write speed graphs, capacity and startup volume free space.
+  - **Network:** per Wi-Fi/Ethernet interface, send/receive graph, IPv4/IPv6 address and totals.
+  - **GPU:** utilization graph, renderer and tiler graphs on Apple Silicon, GPU memory in use, temperature and core count.
+- **Startup apps:** launchd agents and daemons that start automatically, with Enable/Disable.
 
 ## Requirements
 
@@ -24,9 +30,24 @@ Or open `Package.swift` in Xcode and press Run.
 | Per-core CPU ticks | `host_processor_info(PROCESSOR_CPU_LOAD_INFO)`, diffed once per second |
 | GPU utilization and memory | IOKit `IOAccelerator` services, `PerformanceStatistics` dictionary |
 | CPU name, core counts | `sysctlbyname` (`machdep.cpu.brand_string`, `hw.perflevel*`) |
+| Core types and names | `hw.perflevelN.name` / `logicalcpu`, IODeviceTree `cpus/*/cluster-type` |
 | Process count, boot time | `proc_listallpids`, `sysctl(KERN_BOOTTIME)` |
+| Per-process CPU and memory | `proc_pid_rusage(RUSAGE_INFO_V4)`, `proc_pidinfo`, `NSWorkspace` |
+| Memory | `host_statistics64(HOST_VM_INFO64)`, `vm.swapusage` |
+| Disk | IOKit `IOBlockStorageDriver` `Statistics` |
+| Network | `sysctl(NET_RT_IFLIST2)` 64-bit counters, SystemConfiguration names, `getifaddrs` |
+| Temperatures | IOKit `IOHIDEventSystemClient` temperature sensors, `ProcessInfo.thermalState` |
+| Startup apps | `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons`, `launchctl` |
 
-No private frameworks and no root privileges are needed.
+No root privileges are needed. Apple has no public temperature API, so temperatures use IOHIDEventSystem functions that IOKit exports but doesn't declare in its headers. That is fine for direct distribution, but not for the Mac App Store.
+
+## Build a DMG
+
+```sh
+./scripts/make-dmg.sh
+```
+
+This makes a universal, ad-hoc signed `dist/TaskManager.dmg`.
 
 ## Layout
 
