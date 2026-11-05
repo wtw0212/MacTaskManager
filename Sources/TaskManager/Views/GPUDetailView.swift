@@ -24,6 +24,9 @@ struct GPUDetailView: View {
                 Stat(label: "GPU memory in use", value: Theme.bytes(gpu.reading.memoryInUse), large: true)
                 if let celsius = monitor.temperature.gpu {
                     Stat(label: "Temperature", value: Theme.temperature(celsius), large: true)
+                } else if let celsius = monitor.temperature.cpu {
+                    // Newer chips (e.g. M5) expose only shared SoC die sensors, no GPU-specific one.
+                    Stat(label: "SoC temperature", value: Theme.temperature(celsius), large: true)
                 }
                 if let cores = gpu.reading.coreCount {
                     Stat(label: "GPU cores", value: "\(cores)", large: true)

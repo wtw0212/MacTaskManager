@@ -33,7 +33,7 @@ enum MemorySampler {
         host_page_size(mach_host_self(), &pageSize)
         let page = UInt64(pageSize)
 
-        let internal = UInt64(stats.internal_page_count)
+        let internalPages = UInt64(stats.internal_page_count)
         let purgeable = UInt64(stats.purgeable_count)
 
         var swap = xsw_usage()
@@ -42,7 +42,7 @@ enum MemorySampler {
 
         return MemoryReading(
             total: ProcessInfo.processInfo.physicalMemory,
-            app: (internal > purgeable ? internal - purgeable : 0) * page,
+            app: (internalPages > purgeable ? internalPages - purgeable : 0) * page,
             wired: UInt64(stats.wire_count) * page,
             compressed: UInt64(stats.compressor_page_count) * page,
             cached: (UInt64(stats.external_page_count) + purgeable) * page,

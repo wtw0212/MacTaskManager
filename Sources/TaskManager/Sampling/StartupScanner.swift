@@ -54,7 +54,9 @@ enum StartupScanner {
                       let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
                       let label = plist["Label"] as? String else { continue }
 
-                let program = plist["Program"] as? String ?? (plist["ProgramArguments"] as? [String])?.first
+                let arguments = plist["ProgramArguments"] as? [String] ?? []
+                // For launchers like `/usr/bin/open -a /Applications/X.app/...`, name the app, not `open`.
+                let program = plist["Program"] as? String ?? arguments.first { $0.contains(".app/") } ?? arguments.first
                 let keepAlive: Bool = {
                     if let flag = plist["KeepAlive"] as? Bool { return flag }
                     return plist["KeepAlive"] is [String: Any]

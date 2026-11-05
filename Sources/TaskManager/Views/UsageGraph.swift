@@ -111,6 +111,7 @@ struct Stat: View {
                     .font(large ? .title2 : .body)
                     .monospacedDigit()
             }
+            .fixedSize() // never wrap a label or a value like "168 KB/s"
         }
     }
 }

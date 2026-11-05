@@ -28,8 +28,16 @@ enum Theme {
 
     /// Bytes per second, e.g. "12.3 MB/s".
     static func byteRate(_ value: Double) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(value), countStyle: .file) + "/s"
+        rateFormatter.string(fromByteCount: Int64(value)) + "/s"
     }
+
+    // Plain ByteCountFormatter prints "Zero KB" for 0.
+    private static let rateFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowsNonnumericFormatting = false
+        return formatter
+    }()
 
     /// Bytes per second shown as bits, e.g. "4.2 Mbps", like Windows does for networks.
     static func bitRate(_ bytesPerSecond: Double) -> String {

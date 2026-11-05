@@ -83,16 +83,16 @@ struct ProcessesView: View {
                     }
                 }
             }
+
+            Text("CPU and memory of processes owned by other users (such as root) need administrator rights to read.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(6)
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search processes")
         .onAppear { monitor.samplesProcesses = true }
         .onDisappear { monitor.samplesProcesses = false }
-        .overlay(alignment: .bottomLeading) {
-            Text("CPU and memory of processes owned by other users (such as root) need administrator rights to read.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .padding(6)
-        }
     }
 
     private static let genericIcon = NSWorkspace.shared.icon(for: .unixExecutable)

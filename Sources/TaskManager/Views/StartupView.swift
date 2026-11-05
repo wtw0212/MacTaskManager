@@ -26,9 +26,9 @@ struct StartupView: View {
                 TableColumn("Name", value: \.name) { item in
                     Text(item.name).help(item.program ?? "")
                 }
-                .width(min: 160, ideal: 220)
+                .width(min: 120, ideal: 150)
                 TableColumn("Label", value: \.label) { Text($0.label).foregroundStyle(.secondary) }
-                    .width(min: 160, ideal: 260)
+                    .width(min: 140, ideal: 200)
                 TableColumn("Publisher", value: \.publisher)
                     .width(90)
                 TableColumn("Status") { item in
@@ -43,7 +43,7 @@ struct StartupView: View {
                 }
                 .width(120)
                 TableColumn("Scope") { Text($0.scope.rawValue).foregroundStyle(.secondary) }
-                    .width(min: 140, ideal: 170)
+                    .width(min: 120, ideal: 160)
             }
             .contextMenu(forSelectionType: StartupItem.ID.self) { ids in
                 if let item = items.first(where: { $0.id == ids.first }) {
