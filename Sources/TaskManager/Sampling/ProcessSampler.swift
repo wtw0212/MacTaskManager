@@ -6,7 +6,15 @@ import Darwin
 @_silgen_name("responsibility_get_pid_responsible_for_pid")
 private func responsibility_get_pid_responsible_for_pid(_ pid: pid_t) -> pid_t
 
+// <sys/resource.h> constants Swift doesn't import.
+private let PRIO_DARWIN_PROCESS: Int32 = 4
+private let PRIO_DARWIN_BG: Int32 = 0x1000
+// <sys/proc.h>: the process runs under Rosetta.
+private let P_TRANSLATED: Int32 = 0x0002_0000
+
 struct ProcessRow: Identifiable {
+    enum Status { case suspended, efficiency }
+
     let id: pid_t
     var name: String
     var path: String?
@@ -19,9 +27,17 @@ struct ProcessRow: Identifiable {
     var threads: Int?
     /// Disk read + write in bytes per second. -1 when not readable.
     var diskRate: Double = -1
+    /// Network received + sent in bytes per second, from nettop. -1 when not available.
+    var networkRate: Double = -1
+    /// Average power over the last interval in watts (billed energy). -1 when not readable.
+    var energy: Double = -1
     /// The process macOS holds responsible for this one (the app, for helpers).
     var responsiblePID: pid_t = 0
-    var pid: Int32 { id }
+    var parentPID: pid_t = 0
+    var user = ""
+    var status: Status?
+    var architecture = ""
+    var startTime: Date?
 }
 
 /// Lists all processes with per-process CPU and memory from `proc_pid_rusage`.
@@ -38,16 +54,28 @@ final class ProcessSampler {
         var path: String?
     }
 
-    private var previousCPU: [Identity: UInt64] = [:]
-    private var previousDisk: [Identity: UInt64] = [:]
+    private struct Counters {
+        var cpu: UInt64
+        var disk: UInt64
+        var energy: UInt64
+    }
+
+    private var previous: [Identity: Counters] = [:]
     private var previousTime = DispatchTime.now().uptimeNanoseconds
     private var names: [Identity: Cached] = [:]
+    private var userNames: [uid_t: String] = [:]
+    private let network = ProcessNetworkSampler()
     private let ticksToNanoseconds: Double = {
         var timebase = mach_timebase_info_data_t()
         mach_timebase_info(&timebase)
         return Double(timebase.numer) / Double(timebase.denom)
     }()
     private let coreCount = Double(max(ProcessInfo.processInfo.activeProcessorCount, 1))
+    #if arch(arm64)
+    private let nativeArchitecture = "Apple"
+    #else
+    private let nativeArchitecture = "Intel"
+    #endif
 
     func sample() -> [ProcessRow] {
         let now = DispatchTime.now().uptimeNanoseconds
@@ -58,13 +86,14 @@ final class ProcessSampler {
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
             apps[app.processIdentifier] = app
         }
+        let networkRates = network.rates()
 
         var rows: [ProcessRow] = []
-        var currentCPU: [Identity: UInt64] = [:]
-        var currentDisk: [Identity: UInt64] = [:]
+        var current: [Identity: Counters] = [:]
         var currentNames: [Identity: Cached] = [:]
 
-        for pid in Self.allPIDs() where pid > 0 {
+        for info in Self.allProcesses() where info.kp_proc.p_pid > 0 {
+            let pid = info.kp_proc.p_pid
             var usage = rusage_info_v4()
             let readable = withUnsafeMutablePointer(to: &usage) {
                 $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
@@ -76,47 +105,58 @@ final class ProcessSampler {
             let cached = names[identity] ?? Self.lookUpName(pid)
             currentNames[identity] = cached
 
-            var cpu = -1.0
-            var memory: UInt64 = 0
-            var diskRate = -1.0
-            if readable {
-                let ticks = usage.ri_user_time + usage.ri_system_time
-                currentCPU[identity] = ticks
-                if let previous = previousCPU[identity], elapsed > 0, ticks >= previous {
-                    cpu = min(Double(ticks - previous) * ticksToNanoseconds / elapsed / coreCount, 1)
-                } else {
-                    cpu = 0
-                }
-                memory = usage.ri_phys_footprint
-                let disk = usage.ri_diskio_bytesread + usage.ri_diskio_byteswritten
-                currentDisk[identity] = disk
-                if let previous = previousDisk[identity], elapsed > 0, disk >= previous {
-                    diskRate = Double(disk - previous) / (elapsed / 1_000_000_000)
-                } else {
-                    diskRate = 0
-                }
-            }
-
             let app = apps[pid]
-            rows.append(ProcessRow(
+            let uid = info.kp_eproc.e_ucred.cr_uid
+            let start = info.kp_proc.p_un.__p_starttime
+            var row = ProcessRow(
                 id: pid,
                 name: app?.localizedName ?? cached.name,
                 path: cached.path,
                 isApp: app != nil,
                 icon: app?.icon,
-                cpu: cpu,
-                memory: memory,
+                cpu: -1,
+                memory: 0,
                 threads: Self.threadCount(pid),
-                diskRate: diskRate,
-                responsiblePID: responsibility_get_pid_responsible_for_pid(pid)
-            ))
+                networkRate: networkRates.map { $0[pid] ?? 0 } ?? -1,
+                responsiblePID: responsibility_get_pid_responsible_for_pid(pid),
+                parentPID: info.kp_eproc.e_ppid,
+                user: userName(uid),
+                status: info.kp_proc.p_stat == SSTOP ? .suspended : Self.isEfficient(pid) ? .efficiency : nil,
+                architecture: info.kp_proc.p_flag & P_TRANSLATED != 0 ? "Intel" : nativeArchitecture,
+                startTime: Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
+            )
+
+            if readable {
+                let counters = Counters(cpu: usage.ri_user_time + usage.ri_system_time,
+                                        disk: usage.ri_diskio_bytesread + usage.ri_diskio_byteswritten,
+                                        energy: usage.ri_billed_energy)
+                current[identity] = counters
+                let old = previous[identity]
+                func delta(_ value: KeyPath<Counters, UInt64>) -> Double? {
+                    guard let old, elapsed > 0, counters[keyPath: value] >= old[keyPath: value] else { return nil }
+                    return Double(counters[keyPath: value] - old[keyPath: value])
+                }
+                row.cpu = min((delta(\.cpu) ?? 0) * ticksToNanoseconds / max(elapsed, 1) / coreCount, 1)
+                row.memory = usage.ri_phys_footprint
+                row.diskRate = (delta(\.disk) ?? 0) / (max(elapsed, 1) / 1_000_000_000)
+                row.energy = (delta(\.energy) ?? 0) / max(elapsed, 1) // nanojoules per nanosecond = watts
+            }
+            rows.append(row)
         }
 
-        previousCPU = currentCPU
-        previousDisk = currentDisk
+        previous = current
         names = currentNames
         return rows
     }
+
+    private func userName(_ uid: uid_t) -> String {
+        if let name = userNames[uid] { return name }
+        let name = getpwuid(uid).map { String(cString: $0.pointee.pw_name) } ?? "\(uid)"
+        userNames[uid] = name
+        return name
+    }
+
+    // MARK: Actions
 
     static func terminate(_ pid: pid_t, force: Bool) {
         if let app = NSRunningApplication(processIdentifier: pid) {
@@ -126,12 +166,48 @@ final class ProcessSampler {
         }
     }
 
-    private static func allPIDs() -> [pid_t] {
-        let estimate = proc_listallpids(nil, 0)
-        guard estimate > 0 else { return [] }
-        var pids = [pid_t](repeating: 0, count: Int(estimate) + 64)
-        let count = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
-        return Array(pids.prefix(Int(max(count, 0))))
+    /// Darwin background priority: throttled CPU and I/O, efficiency cores only. Like Windows'
+    /// efficiency mode. Returns an error message on failure (other users' processes need root).
+    static func setEfficiency(_ pid: pid_t, _ on: Bool) -> String? {
+        setpriority(PRIO_DARWIN_PROCESS, id_t(pid), on ? PRIO_DARWIN_BG : 0) == 0 ? nil : String(cString: strerror(errno))
+    }
+
+    /// SIGSTOP / SIGCONT. Returns an error message on failure.
+    static func setSuspended(_ pid: pid_t, _ suspended: Bool) -> String? {
+        kill(pid, suspended ? SIGSTOP : SIGCONT) == 0 ? nil : String(cString: strerror(errno))
+    }
+
+    /// Command-line arguments from KERN_PROCARGS2 (only for processes we may inspect).
+    static func arguments(_ pid: pid_t) -> [String]? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+        // Layout: argc, executable path, NUL padding, then argc NUL-terminated arguments.
+        let argc = buffer.withUnsafeBytes { $0.load(as: Int32.self) }
+        var strings = buffer[MemoryLayout<Int32>.size..<size].split(separator: 0, omittingEmptySubsequences: true)
+        guard !strings.isEmpty else { return nil }
+        strings.removeFirst() // executable path
+        return strings.prefix(Int(argc)).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    // MARK: Reading
+
+    private static func isEfficient(_ pid: pid_t) -> Bool {
+        errno = 0
+        return getpriority(PRIO_DARWIN_PROCESS, id_t(pid)) > 0 && errno == 0
+    }
+
+    /// Every process in one sysctl: PID, parent, owner, state, flags and start time.
+    private static func allProcesses() -> [kinfo_proc] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        var size = 0
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0 else { return [] }
+        var processes = [kinfo_proc](repeating: kinfo_proc(), count: size / MemoryLayout<kinfo_proc>.stride + 32)
+        size = processes.count * MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, 4, &processes, &size, nil, 0) == 0 else { return [] }
+        return Array(processes.prefix(size / MemoryLayout<kinfo_proc>.stride))
     }
 
     private static func lookUpName(_ pid: pid_t) -> Cached {

@@ -6,6 +6,8 @@ struct NetworkCounters {
     var bsdName: String
     var bytesIn: UInt64
     var bytesOut: UInt64
+    /// Link speed in bits per second, 0 when the driver doesn't report it.
+    var linkSpeed: UInt64 = 0
 }
 
 enum NetworkSampler {
@@ -32,7 +34,8 @@ enum NetworkSampler {
                         counters.append(NetworkCounters(
                             bsdName: String(cString: name),
                             bytesIn: message.ifm_data.ifi_ibytes,
-                            bytesOut: message.ifm_data.ifi_obytes
+                            bytesOut: message.ifm_data.ifi_obytes,
+                            linkSpeed: UInt64(message.ifm_data.ifi_baudrate)
                         ))
                     }
                 }

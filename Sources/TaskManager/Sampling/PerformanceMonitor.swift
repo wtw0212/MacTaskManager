@@ -34,7 +34,23 @@ struct NetworkState: Identifiable {
     var sendHistory = PerformanceMonitor.emptyHistory
 }
 
-/// Samples everything once per second and keeps the last 60 seconds of each graph.
+/// Windows' View > Update speed.
+enum UpdateSpeed: String, CaseIterable, Identifiable {
+    case high = "High", normal = "Normal", low = "Low", paused = "Paused"
+
+    var id: Self { self }
+
+    var interval: TimeInterval? {
+        switch self {
+        case .high: 0.5
+        case .normal: 1
+        case .low: 4
+        case .paused: nil
+        }
+    }
+}
+
+/// Samples everything once per update interval (1 s by default) and keeps the last 60 samples of each graph.
 @MainActor
 final class PerformanceMonitor: ObservableObject {
     nonisolated static let historyLength = 60
@@ -72,6 +88,17 @@ final class PerformanceMonitor: ObservableObject {
     private var lastTick = Date()
     private var tickCount = 0
     private var timer: AnyCancellable?
+    private var lastInterval: TimeInterval = 1
+
+    @Published var updateSpeed = UpdateSpeed(rawValue: UserDefaults.standard.string(forKey: "updateSpeed") ?? "") ?? .normal {
+        didSet {
+            UserDefaults.standard.set(updateSpeed.rawValue, forKey: "updateSpeed")
+            startTimer()
+        }
+    }
+
+    /// How many seconds the graphs span at the current update speed.
+    var historySeconds: Int { Int(Double(Self.historyLength) * lastInterval) }
 
     init() {
         coreGroups = CoreTopology.groups(logicalCount: cpu.coreCount)
@@ -79,9 +106,16 @@ final class PerformanceMonitor: ObservableObject {
         disks = DiskSampler.read().map { DiskState(counters: $0) }
         networks = NetworkSampler.read().map { NetworkState(counters: $0, displayName: $0.bsdName) }
         tick()
-        timer = Timer.publish(every: 1, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in self?.tick() }
+        startTimer()
+    }
+
+    private func startTimer() {
+        lastInterval = updateSpeed.interval ?? lastInterval
+        timer = updateSpeed.interval.map {
+            Timer.publish(every: $0, on: .main, in: .common)
+                .autoconnect()
+                .sink { [weak self] _ in self?.tick() }
+        }
     }
 
     var currentTotal: Double { totalHistory.last ?? 0 }
