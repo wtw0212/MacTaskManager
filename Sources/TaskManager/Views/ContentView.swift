@@ -57,7 +57,7 @@ private struct TitleBar: View {
     var body: some View {
         ZStack {
             HStack(spacing: DS.Space.s) {
-                Spacer().frame(width: 72) // traffic lights
+                Spacer().frame(width: DS.Size.trafficLightInset + 54 - DS.Space.m) // traffic lights
                 Fluent(.performance, filled: true, size: DS.Size.icon)
                     .foregroundStyle(DS.Palette.cpu)
                 Text("Task Manager").font(DS.Typeface.caption)
@@ -72,10 +72,13 @@ private struct TitleBar: View {
     }
 }
 
-/// Makes the whole custom title bar drag the window (the system one is only 28 pt tall)
-/// and zoom it on double-click.
+/// Makes the whole custom title bar drag the window and zoom it on double-click, and moves
+/// the traffic lights down so they sit centred in it, like a unified-toolbar window.
+/// (An empty NSToolbar would centre them too, but it swallows clicks meant for the search box.)
 private struct WindowDragArea: NSViewRepresentable {
     final class DragView: NSView {
+        private var observers: [NSObjectProtocol] = []
+
         override func mouseDown(with event: NSEvent) {
             if event.clickCount == 2 { window?.performZoom(nil) } else { window?.performDrag(with: event) }
         }
@@ -83,6 +86,39 @@ private struct WindowDragArea: NSViewRepresentable {
         // Don't start with the cursor in the search box: Windows doesn't, and stray typing would filter the list.
         override func viewDidMoveToWindow() {
             DispatchQueue.main.async { [weak self] in self?.window?.makeFirstResponder(nil) }
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { return }
+            // AppKit lays the title bar out again after these, putting the buttons back.
+            let names: [Notification.Name] = [NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
+                                              NSWindow.didExitFullScreenNotification, NSWindow.didBecomeKeyNotification,
+                                              NSWindow.didResignKeyNotification]
+            observers = names.map {
+                NotificationCenter.default.addObserver(forName: $0, object: window, queue: .main) { [weak self] _ in
+                    self?.placeTrafficLights()
+                }
+            }
+            placeTrafficLights()
+            DispatchQueue.main.async { [weak self] in self?.placeTrafficLights() }
+        }
+
+        override func layout() {
+            super.layout()
+            placeTrafficLights()
+        }
+
+        private func placeTrafficLights() {
+            guard let window, !window.styleMask.contains(.fullScreen),
+                  let close = window.standardWindowButton(.closeButton),
+                  let titlebar = close.superview, let container = titlebar.superview else { return }
+            let height = DS.Size.titleBar
+            container.frame = NSRect(x: 0, y: window.frame.height - height, width: window.frame.width, height: height)
+            titlebar.frame = container.bounds
+            for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+                guard let button = window.standardWindowButton(type) else { continue }
+                button.setFrameOrigin(NSPoint(x: DS.Size.trafficLightInset + CGFloat(index) * 20,
+                                              y: ((height - button.frame.height) / 2).rounded()))
+            }
         }
     }
 

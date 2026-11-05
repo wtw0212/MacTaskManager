@@ -21,7 +21,9 @@ enum DS {
     }
 
     enum Size {
-        static let titleBar: CGFloat = 44
+        static let titleBar: CGFloat = 52
+        /// Left edge of the close button, as in unified-toolbar windows.
+        static let trafficLightInset: CGFloat = 20
         static let pageHeader: CGFloat = 52
         static let navRow: CGFloat = 36
         static let navExpanded: CGFloat = 220
