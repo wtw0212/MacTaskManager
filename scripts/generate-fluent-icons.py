@@ -22,6 +22,10 @@ ICONS = {
     "menu": "navigation",
     "dismiss": "dismiss",
     "filter": "filter",
+    "efficiency": "leaf_one",
+    "pause": "pause",
+    "view": "eye",
+    "chevronDown": "chevron_down",
 }
 STYLES = ["regular", "filled"]
 
