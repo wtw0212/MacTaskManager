@@ -192,13 +192,17 @@ struct ColumnHeader: View {
                 if let total {
                     Text(total).font(DS.Typeface.columnTotal).lineLimit(1)
                 }
-                HStack(spacing: DS.Space.xs) {
-                    Text(title).lineLimit(1)
-                    Fluent(.chevronRight, size: 8)
-                        .rotationEffect(.degrees(ascending ? -90 : 90))
-                        .opacity(isSorted ? 1 : 0)
-                }
-                .font(DS.Typeface.caption)
+                // The chevron sits outside the label's layout, so the label lines up with the row values.
+                Text(title)
+                    .lineLimit(1)
+                    .overlay(alignment: alignment == .trailing ? .leading : .trailing) {
+                        if isSorted {
+                            Fluent(.chevronRight, size: 8)
+                                .rotationEffect(.degrees(ascending ? -90 : 90))
+                                .offset(x: (alignment == .trailing ? -1 : 1) * DS.Space.m)
+                        }
+                    }
+                    .font(DS.Typeface.caption)
                 .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .bottom))

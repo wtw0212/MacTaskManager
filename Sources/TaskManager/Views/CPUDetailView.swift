@@ -141,7 +141,8 @@ private struct GroupedCoreGrid: View {
         Int((Double(group.cores.count) / Double(columns)).rounded(.up))
     }
 
-    /// Picks the column count that makes each cell closest to a 2:1 shape.
+    /// Picks the column count that makes each cell closest to a 2:1 shape while leaving
+    /// few empty slots at the end of each section.
     private func bestColumnCount(for size: CGSize) -> Int {
         let largest = max(groups.map(\.cores.count).max() ?? 1, 1)
         guard size.width > 0, size.height > 0 else { return largest }
@@ -150,7 +151,8 @@ private struct GroupedCoreGrid: View {
         for columns in 1...largest {
             let rows = groups.map { rowCount(for: $0, columns: columns) }.reduce(0, +)
             let aspect = (size.width / CGFloat(columns)) / (size.height / CGFloat(max(rows, 1)))
-            let score = abs(log(Double(aspect) / 2))
+            let empty = Double(rows * columns - groups.map(\.cores.count).reduce(0, +)) / Double(rows * columns)
+            let score = abs(log(Double(aspect) / 2)) + 3 * empty
             if score < bestScore {
                 bestScore = score
                 best = columns

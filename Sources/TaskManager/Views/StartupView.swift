@@ -13,7 +13,7 @@ struct StartupView: View {
     @AppStorage("showSystemDaemons") private var showsSystem = false
     @State private var message: String?
 
-    private let columns: (publisher: CGFloat, status: CGFloat, startup: CGFloat, scope: CGFloat) = (140, 90, 130, 170)
+    private let columns: (publisher: CGFloat, status: CGFloat, startup: CGFloat, scope: CGFloat) = (120, 90, 120, 170)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -75,7 +75,7 @@ struct StartupView: View {
                     .frame(width: DS.Size.icon, height: DS.Size.icon)
                 Text(item.name).font(DS.Typeface.body).lineLimit(1)
             }
-            .padding(.leading, DS.Space.l)
+            .padding(.leading, DS.Space.l + DS.Space.s) // + ColumnHeader's inner padding, so icons line up with "Name"
             .frame(maxWidth: .infinity, alignment: .leading)
             .help(item.program ?? item.label)
 

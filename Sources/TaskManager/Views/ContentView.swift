@@ -68,7 +68,26 @@ private struct TitleBar: View {
         }
         .padding(.horizontal, DS.Space.m)
         .frame(height: DS.Size.titleBar)
+        .background(WindowDragArea())
     }
+}
+
+/// Makes the whole custom title bar drag the window (the system one is only 28 pt tall)
+/// and zoom it on double-click.
+private struct WindowDragArea: NSViewRepresentable {
+    final class DragView: NSView {
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2 { window?.performZoom(nil) } else { window?.performDrag(with: event) }
+        }
+
+        // Don't start with the cursor in the search box: Windows doesn't, and stray typing would filter the list.
+        override func viewDidMoveToWindow() {
+            DispatchQueue.main.async { [weak self] in self?.window?.makeFirstResponder(nil) }
+        }
+    }
+
+    func makeNSView(context: Context) -> NSView { DragView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 private struct NavigationRail: View {

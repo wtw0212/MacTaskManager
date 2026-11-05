@@ -55,7 +55,7 @@ struct PerformanceView: View {
 
         ForEach(monitor.networks) { network in
             tile(.network(network.id), network.displayName,
-                 [network.id, "S: \(Theme.bitRate(network.sendRate))  R: \(Theme.bitRate(network.receiveRate))"],
+                 [network.id, rates(network)],
                  network.receiveHistory, DS.Palette.network,
                  secondary: network.sendHistory, maxValue: networkScale(network))
         }
@@ -80,6 +80,15 @@ struct PerformanceView: View {
     private func gpuSubtitle(_ gpu: GPUState) -> String {
         let temperature = monitor.temperature.gpu.map { " (\(Theme.temperature($0)))" } ?? ""
         return Theme.percent(gpu.reading.utilization) + temperature
+    }
+
+    /// "S: 8.0  R: 16.4 Kbps": like Windows, the unit is printed once when both rates share it,
+    /// so the line fits the tile.
+    private func rates(_ network: NetworkState) -> String {
+        let send = Theme.bitRate(network.sendRate), receive = Theme.bitRate(network.receiveRate)
+        let unit = { (rate: String) in rate.split(separator: " ").last ?? "" }
+        let sendValue = unit(send) == unit(receive) ? String(send.dropLast(unit(send).count + 1)) : send
+        return "S: \(sendValue)  R: \(receive)"
     }
 
     private func networkScale(_ network: NetworkState) -> Double {
@@ -140,6 +149,7 @@ private struct ResourceTile: View {
             .minimumScaleFactor(0.75)
             Spacer(minLength: 0)
         }
+        .frame(height: DS.Size.tileGraph.height) // every tile the same height, whatever its line count
         .padding(DS.Space.s)
         .rowHighlight(isSelected: isSelected)
     }

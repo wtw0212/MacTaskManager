@@ -26,10 +26,10 @@ struct StartupItem: Identifiable {
         return (program as NSString).lastPathComponent
     }
 
-    /// Developer guess from a reverse-DNS label, e.g. "com.google.keystone.agent" -> "google".
+    /// Developer guess from a reverse-DNS label, e.g. "com.google.keystone.agent" -> "Google".
     var publisher: String {
         let parts = label.split(separator: ".")
-        return parts.count >= 2 ? String(parts[1]) : ""
+        return parts.count >= 2 ? parts[1].prefix(1).uppercased() + parts[1].dropFirst() : ""
     }
 
     var domainTarget: String {

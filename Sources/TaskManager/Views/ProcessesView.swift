@@ -85,7 +85,7 @@ struct ProcessesView: View {
             ForEach(group.children) { child in
                 ProcessLine(
                     name: child.name,
-                    icon: child.icon,
+                    icon: child.icon ?? group.main.icon, // helpers show their app's icon, as in Windows
                     indent: 1,
                     disclosure: nil,
                     cpu: child.cpu < 0 ? nil : child.cpu,
