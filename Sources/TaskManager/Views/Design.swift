@@ -35,6 +35,7 @@ enum DS {
         static let narrowColumn: CGFloat = 72
         static let statusColumn: CGFloat = 140
         static let pathColumn: CGFloat = 260
+        static let descriptionColumn: CGFloat = 200
         static let nameColumnMin: CGFloat = 220
         static let commandButton: CGFloat = 32
         static let tileGraph = CGSize(width: 72, height: 48)
@@ -302,6 +303,13 @@ struct ListSectionTitle: View {
 
 // MARK: - Resource panels
 
+/// The text a Performance page puts on the clipboard for "Copy", gathered from its header,
+/// stats and info table in reading order.
+struct CopyLinesKey: PreferenceKey {
+    static let defaultValue: [String] = []
+    static func reduce(value: inout [String], nextValue: () -> [String]) { value += nextValue() }
+}
+
 /// "CPU" big title on the left, device name on the right.
 struct ResourceHeader: View {
     var title: String
@@ -317,6 +325,7 @@ struct ResourceHeader: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+        .preference(key: CopyLinesKey.self, value: [title, "", "\t\(subtitle)", ""])
     }
 }
 
@@ -385,6 +394,7 @@ struct Stat: View {
             }
         }
         .fixedSize()
+        .preference(key: CopyLinesKey.self, value: ["\t\(label)\t\(value)"])
     }
 }
 
@@ -403,6 +413,7 @@ struct InfoTable: View {
             }
         }
         .font(DS.Typeface.body)
+        .preference(key: CopyLinesKey.self, value: rows.map { "\t\($0.0)\t\($0.1)" })
     }
 }
 
@@ -411,7 +422,18 @@ struct StatsArea<Stats: View>: View {
     var info: [(String, String)]
     @ViewBuilder var stats: Stats
 
+    @AppStorage("graphSummaryView") private var summary = false
+
     var body: some View {
+        if summary {
+            // Graph summary view: out of sight, but still there for Copy.
+            content.frame(height: 0).hidden()
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         // Info table beside the stats when there's room, below them when there isn't,
         // so labels and values never wrap or get cut off.
         ViewThatFits(in: .horizontal) {
@@ -432,5 +454,50 @@ struct StatsArea<Stats: View>: View {
             stats
         }
         .fixedSize()
+    }
+}
+
+// MARK: - Settings
+
+/// A Windows 11 settings card: title and description on the left, the control on the right.
+struct SettingsRow<Control: View>: View {
+    var title: String
+    var detail: String? = nil
+    @ViewBuilder var control: Control
+
+    var body: some View {
+        HStack(spacing: DS.Space.l) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                Text(title).font(DS.Typeface.body)
+                if let detail {
+                    Text(detail)
+                        .font(DS.Typeface.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: DS.Space.l)
+            control
+        }
+        .padding(.horizontal, DS.Space.l)
+        .padding(.vertical, DS.Space.m)
+        .frame(minHeight: 60)
+        .background(RoundedRectangle(cornerRadius: DS.Radius.control).fill(DS.Palette.fieldBackground))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.control).stroke(DS.Palette.stroke))
+    }
+}
+
+/// A titled group of settings cards.
+struct SettingsSection<Content: View>: View {
+    var title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Text(title)
+                .font(DS.Typeface.bodyStrong)
+                .padding(.bottom, DS.Space.xs)
+            content
+        }
     }
 }

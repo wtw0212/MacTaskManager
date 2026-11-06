@@ -9,6 +9,11 @@ let package = Package(
             name: "TaskManager",
             path: "Sources/TaskManager",
             linkerSettings: [.linkedFramework("IOKit")]
-        )
+        ),
+        // Optional privileged helper, installed setuid-root only when the user asks (Settings or Processes).
+        .executableTarget(
+            name: "tmhelper",
+            path: "Sources/tmhelper"
+        ),
     ]
 )

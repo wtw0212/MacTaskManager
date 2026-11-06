@@ -9,6 +9,7 @@ struct CPUDetailView: View {
 
     @EnvironmentObject private var monitor: PerformanceMonitor
     @AppStorage("cpuGraphMode") private var mode: Mode = .logical
+    @AppStorage(AppPreferences.graphSummaryKey) private var summary = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.m) {
@@ -30,6 +31,8 @@ struct CPUDetailView: View {
                         ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.inline)
+                    Divider()
+                    PerformanceCopy.menuItems(summary: $summary)
                 }
                 CaptionRow(leading: "Right-click to change graph", trailing: "0")
             }
@@ -38,13 +41,19 @@ struct CPUDetailView: View {
                 GridRow {
                     Stat(label: "Utilization", value: Theme.percent(monitor.currentTotal))
                     Stat(label: "Temperature", value: Theme.temperature(monitor.temperature.cpu))
-                    Stat(label: "Processes", value: "\(monitor.processCount)")
-                }
-                GridRow {
                     ForEach(monitor.coreGroups.prefix(2)) { group in
                         Stat(label: monitor.coreGroups.count > 1 ? "\(group.name) cores" : "All cores",
                              value: Theme.percent(monitor.utilization(of: group)))
                     }
+                }
+                GridRow {
+                    Stat(label: "Processes", value: "\(monitor.processCount)")
+                    Stat(label: "Threads", value: monitor.threadCount.map(String.init) ?? "–")
+                    // Every process's open files need the helper; without it the total would be partial.
+                    Stat(label: "Handles", value: monitor.handleCount.map(String.init) ?? "–")
+                        .help(monitor.handleCount == nil ? "Install the helper in Settings to count every process's open files." : "")
+                }
+                GridRow {
                     Stat(label: "Up time", value: Theme.uptime(monitor.uptime))
                 }
             }
@@ -61,6 +70,12 @@ struct CPUDetailView: View {
             rows.append(("Cores:", "\(cores)"))
         }
         rows.append(("Logical processors:", "\(monitor.coreHistories.count)"))
+        rows.append(("Sockets:", "\(SystemInfo.sockets)"))
+        rows.append(("Virtualization:", SystemInfo.virtualization))
+        let caches = SystemInfo.cacheSizes
+        for (name, size) in [("L1 cache:", caches.l1), ("L2 cache:", caches.l2), ("L3 cache:", caches.l3)] where size > 0 {
+            rows.append((name, Theme.cacheSize(size)))
+        }
         rows.append(("Thermal state:", monitor.thermalState.label))
         return rows
     }

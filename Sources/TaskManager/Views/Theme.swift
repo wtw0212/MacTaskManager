@@ -21,6 +21,11 @@ enum Theme {
         String(format: unit ? "%.1f GB" : "%.1f", Double(value) / 1_073_741_824)
     }
 
+    /// Cache sizes as Windows shows them: "192 KB", "16.0 MB".
+    static func cacheSize(_ bytes: Int64) -> String {
+        bytes >= 1_048_576 ? String(format: "%.1f MB", Double(bytes) / 1_048_576) : "\(bytes / 1024) KB"
+    }
+
     static func megabytes(_ value: UInt64) -> String {
         String(format: "%.1f MB", Double(value) / 1_048_576)
     }

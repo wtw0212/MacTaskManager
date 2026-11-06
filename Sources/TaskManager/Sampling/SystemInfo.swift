@@ -23,12 +23,61 @@ enum SystemInfo {
         Int(max(proc_listallpids(nil, 0), 0))
     }
 
+    static let sockets = sysctlInt("hw.packages") ?? 1
+    static let virtualization = sysctlInt("kern.hv_support") == 1 ? "Supported" : "Not supported"
+
+    /// Total L1 (instruction + data, every core), L2 (every cluster or core) and L3 cache, in bytes.
+    static let cacheSizes: (l1: Int64, l2: Int64, l3: Int64) = {
+        let value = { (name: String) in sysctlInt64(name) ?? 0 }
+        if sysctlInt64("hw.perflevel0.physicalcpu") != nil {
+            // Apple silicon: per core type, L1 per core and L2 shared by a cluster of cores.
+            var l1: Int64 = 0, l2: Int64 = 0
+            for level in 0..<perfLevelCount {
+                let prefix = "hw.perflevel\(level)."
+                let cores = value(prefix + "physicalcpu")
+                l1 += cores * (value(prefix + "l1icachesize") + value(prefix + "l1dcachesize"))
+                let perL2 = max(value(prefix + "cpusperl2"), 1)
+                l2 += (cores + perL2 - 1) / perL2 * value(prefix + "l2cachesize")
+            }
+            return (l1, l2, value("hw.l3cachesize"))
+        }
+        // Intel: L1 and L2 per core, one shared L3.
+        let cores = value("hw.physicalcpu")
+        return (cores * (value("hw.l1icachesize") + value("hw.l1dcachesize")), cores * value("hw.l2cachesize"),
+                value("hw.l3cachesize"))
+    }()
+
+    private static let host = mach_host_self()
+
+    /// Threads in all processes, as `top` counts them (no privileges needed).
+    static func threadCount() -> Int? {
+        var processorSet = processor_set_name_t()
+        guard processor_set_default(host, &processorSet) == KERN_SUCCESS else { return nil }
+        defer { mach_port_deallocate(mach_task_self_, processorSet) }
+        var info = processor_set_load_info()
+        var count = mach_msg_type_number_t(MemoryLayout<processor_set_load_info>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                processor_set_statistics(processorSet, PROCESSOR_SET_LOAD_INFO, $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? Int(info.thread_count) : nil
+    }
+
     static func sysctlString(_ name: String) -> String? {
         var size = 0
         guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
         var buffer = [CChar](repeating: 0, count: size)
         guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else { return nil }
         return String(cString: buffer)
+    }
+
+    /// For values that may be 32 or 64 bits wide, such as cache sizes.
+    static func sysctlInt64(_ name: String) -> Int64? {
+        var value: Int64 = 0
+        var size = MemoryLayout<Int64>.size
+        guard sysctlbyname(name, &value, &size, nil, 0) == 0 else { return nil }
+        return size == MemoryLayout<Int32>.size ? Int64(Int32(truncatingIfNeeded: value)) : value
     }
 
     static func sysctlInt(_ name: String) -> Int? {

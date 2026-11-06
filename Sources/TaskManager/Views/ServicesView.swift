@@ -74,6 +74,9 @@ struct ServicesView: View {
         Button("Stop") { model.perform(.stop, on: item) }.disabled(!item.isRunning)
         Button("Restart") { model.perform(.restart, on: item) }
         Divider()
+        if item.isRunning {
+            Button("Go to details") { DetailsNavigation.show(pid_t(item.pid)) }
+        }
         if let program = item.program {
             Button("Open file location") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: program)])

@@ -9,29 +9,58 @@ enum Resource: Hashable {
     case battery
 }
 
+/// "Copy" on the Performance page: the selected resource's header, stats and details as text.
+enum PerformanceCopy {
+    nonisolated(unsafe) static var lines: [String] = []
+
+    @MainActor
+    static func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+
+    /// Windows' right-click items for the Performance graphs.
+    @ViewBuilder
+    static func menuItems(summary: Binding<Bool>) -> some View {
+        Toggle("Graph summary view", isOn: summary)
+        Button("Copy") { copy() }
+    }
+}
+
 struct PerformanceView: View {
     @EnvironmentObject private var monitor: PerformanceMonitor
     @State private var selection: Resource = .cpu
+    @AppStorage(AppPreferences.graphSummaryKey) private var summary = false
 
     var body: some View {
         VStack(spacing: 0) {
-            PageHeader(title: "Performance") {
-                CommandButton(title: "Run new task", icon: .runTask) { RunNewTask.present() }
+            if !summary {
+                PageHeader(title: "Performance") {
+                    CommandButton(title: "Copy", icon: .copy) { PerformanceCopy.copy() }
+                    CommandButton(title: "Run new task", icon: .runTask) { RunNewTask.present() }
+                }
             }
 
             HStack(spacing: 0) {
-                ScrollView {
-                    VStack(spacing: DS.Space.xxs) { tiles }
-                        .padding(DS.Space.s)
-                }
-                .frame(width: DS.Size.resourceList)
+                if !summary {
+                    ScrollView {
+                        VStack(spacing: DS.Space.xxs) { tiles }
+                            .padding(DS.Space.s)
+                    }
+                    .frame(width: DS.Size.resourceList)
 
-                Rectangle().fill(DS.Palette.stroke).frame(width: 1)
+                    Rectangle().fill(DS.Palette.stroke).frame(width: 1)
+                }
 
                 detail
                     .padding(.horizontal, DS.Space.xl)
                     .padding(.vertical, DS.Space.l)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .contentShape(Rectangle())
+                    // As in Windows: double-click the graph to switch to and from the summary view.
+                    .onTapGesture(count: 2) { summary.toggle() }
+                    .contextMenu { PerformanceCopy.menuItems(summary: $summary) }
+                    .onPreferenceChange(CopyLinesKey.self) { PerformanceCopy.lines = $0 }
             }
         }
     }

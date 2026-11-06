@@ -33,6 +33,10 @@ ICONS = {
     "start": "play",
     "stop": "stop",
     "delete": "delete",
+    "details": "apps_list_detail",
+    "settings": "settings",
+    "copy": "copy",
+    "shield": "shield",
 }
 STYLES = ["regular", "filled"]
 

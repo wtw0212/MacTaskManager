@@ -18,6 +18,14 @@ struct StartupView: View {
     var body: some View {
         VStack(spacing: 0) {
             PageHeader(title: "Startup apps") {
+                // Windows shows "Last BIOS time" here. Macs report no firmware time, so this is when macOS started.
+                if message == nil, let boot = SystemInfo.bootTime {
+                    Text("Last boot: \(boot.formatted(date: .abbreviated, time: .shortened))")
+                        .font(DS.Typeface.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .padding(.trailing, DS.Space.s)
+                }
                 if let message {
                     Text(message)
                         .font(DS.Typeface.caption)
