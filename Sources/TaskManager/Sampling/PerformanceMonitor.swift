@@ -77,13 +77,18 @@ final class PerformanceMonitor: ObservableObject {
 
     // Processes (only sampled while the Processes tab is open)
     @Published private(set) var processes: [ProcessRow] = []
-    var samplesProcesses = true {
-        didSet { if samplesProcesses && !oldValue { processes = processSampler.sample() } }
+    var samplesProcesses = false {
+        didSet {
+            guard samplesProcesses != oldValue else { return }
+            // Dropping the sampler frees its caches and stops the per-tick nettop runs.
+            processSampler = samplesProcesses ? ProcessSampler() : nil
+            processes = processSampler?.sample() ?? []
+        }
     }
 
     private let cpu = CPUSampler()
     private let temperatureSampler = TemperatureSampler()
-    private let processSampler = ProcessSampler()
+    private var processSampler: ProcessSampler?
     private var interfaceNames: [String: String] = NetworkSampler.displayNames()
     private var lastTick = Date()
     private var tickCount = 0
@@ -126,7 +131,7 @@ final class PerformanceMonitor: ObservableObject {
     }
 
     func refreshProcesses() {
-        processes = processSampler.sample()
+        processes = processSampler?.sample() ?? []
     }
 
     private func tick() {
@@ -152,7 +157,7 @@ final class PerformanceMonitor: ObservableObject {
             startupVolume = DiskSampler.startupVolume()
             interfaceNames = NetworkSampler.displayNames()
         }
-        if samplesProcesses {
+        if let processSampler {
             processes = processSampler.sample()
         }
 

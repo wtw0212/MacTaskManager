@@ -5,7 +5,7 @@ import Foundation
 /// mode (-L 0) spins more than a whole core, so it isn't used. Samples run off the main thread
 /// because `waitUntilExit` spins the run loop, which would re-enter the monitor's timer.
 final class ProcessNetworkSampler {
-    private let queue = DispatchQueue(label: "ProcessNetworkSampler", qos: .utility)
+    private let queue = DispatchQueue(label: "ProcessNetworkSampler", qos: .utility, autoreleaseFrequency: .workItem)
     private let lock = NSLock()
     private var latest: [pid_t: Double]?
     private var isSampling = false
@@ -45,9 +45,11 @@ final class ProcessNetworkSampler {
         process.standardInput = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return nil }
         // A stuck nettop mustn't freeze the column for good.
-        queue.asyncAfter(deadline: .now() + 5) { if process.isRunning { process.terminate() } }
+        let timeout = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: timeout)
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        timeout.cancel() // otherwise it keeps this Process and its pipe alive for the full 5 s
 
         var totals: [pid_t: Double] = [:]
         for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
