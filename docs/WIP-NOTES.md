@@ -22,42 +22,21 @@ Base: main at cc27d9f. This branch builds with zero warnings (`swift build`).
    - Not tested: the UI (no screenshot taken yet), the admin prompt path for system services, RAM.
    - Nav: currently appended last. Insert in the order above once App history and Users exist.
    - Stopping a system service without admin gives "Not privileged to signal service."
-2. **Users: not started.** Plan:
-   - Add `uid` to ProcessRow (kinfo_proc e_ucred.cr_uid is already read in ProcessSampler).
-   - Reuse ProcessLine (make it and CellFrame non-private). Row = `ProcessGroup(main: synthetic row, children: processes)`.
-     The synthetic row uses cpu/energy/rates -1 and memory 0, so `total` ignores it. Give it a negative id
-     (-uid-1) so it can't clash with PIDs in `expanded`/`.id`. Pass the title explicitly (`group.title` counts main as a child).
-   - Full name from getpwuid pw_gecos. A row needs a Fluent `.user` icon: add an optional Fluent param to
-     ProcessLine (a template NSImage may not tint in dark mode).
-   - Other users' processes are unreadable without root (rusage fails), so root and _xxx users show partial or "–" values.
-   - Sampling: `samplesProcesses` is set in ProcessesView onAppear/onDisappear. With two pages using it the order
-     of those callbacks isn't guaranteed. Move it to ContentView, driven by `page` (.processes or .users), and
-     pass `monitor` as a plain `let` so ContentView doesn't redraw every tick.
-3. **App history: not started.** Plan:
-   - Sample every 10 s off the main thread: `proc_listallpids`, `responsibility_get_pid_responsible_for_pid`, then
-     rusage only for processes whose responsible PID is a regular app (`NSWorkspace.runningApplications`).
-   - Accumulate CPU time, `ri_energy_nj` and network deltas by bundle id. First pass is baseline only; later new
-     processes count their full totals.
-   - Network: split ProcessNetworkSampler so a one-shot `nettop` returns per-PID totals (cumulative; clamp deltas at 0).
-   - Persist `{since, apps: {bundleID: {name, path, cpu, network, energy}}}` to
-     ~/Library/Application Support/TaskManager/app-history.json every minute and on quit.
-   - Page: Name with icon (from the saved path, on demand), CPU time, Network, Energy (Wh = nJ / 3.6e12),
-     "Resource usage since <date>" caption, "Delete usage history" button (`.delete` icon is ready), sortable.
-4. **GPU column: not started.** Findings:
-   - Children of IOAccelerator have `IOUserClientCreator` = "pid 419, WindowServer" and
-     `AppUsage` = array of {API="Metal", accumulatedGPUTime (ns), lastSubmittedTime}; AppUsage may be empty.
-   - GPU% = delta of summed accumulatedGPUTime per PID / wall delta. Heat-shade like CPU; header total from
-     `monitor.gpus`. Read only while Processes/Users is visible; measure the cost (100-200 clients).
-   - Add `.gpu` (on by default), optional `.gpuEngine` (API name), `.diskRead`, `.diskWrite` (split the disk counters in
-     ProcessSampler). Rename the AppStorage key to "processHiddenColumnsV2" with the new optional columns hidden by default.
-5. **Battery: not started.** Findings on this Mac (MacBook, battery present):
-   - AppleSmartBattery has TimeRemaining, ExternalConnected, AvgTimeToEmpty, Voltage (mV), MaxCapacity=100 (a percentage),
-     CurrentCapacity (percent), CycleCount, InstantAmperage, Amperage (mA), FullyCharged, IsCharging.
-   - Real capacities are nested: BatteryData = {NominalChargeCapacity 6484, DesignCapacity 6249, ...}. Health = nominal / design,
-     clamped to 100%. Temperature is in 0.01 °C; check AdapterDetails.Watts.
-   - Power W = V x A / 1e6, signed. UsageGraph clamps at 0, so add a `minValue` param (default 0) for the signed power graph.
-   - Use IOPSCopyPowerSourcesInfo/List for charge, charging, power source, BatteryHealth; read single
-     keys with `IORegistry.property`. Add a tile and `BatteryDetailView` like the other resources; only if a battery exists.
+2. **Users: code done (cloud, compiles on CI), not run yet.** UsersView.swift reuses ProcessLine/ProcessGroup;
+   rows get negative IDs (Int32.min + uid). People (uid >= 500, no `_`) first with Active/Disconnected from
+   SCDynamicStoreCopyConsoleUser, then "System accounts". Process sampling is now switched by ContentView for
+   .processes and .users.
+3. **App history: code done, not run yet.** Sampling/AppHistory.swift (10 s timer on main, rusage + one-shot
+   nettop on a queue, baseline first pass, saves every minute and on quit to
+   ~/Library/Application Support/TaskManager/app-history.json). Views/AppHistoryView.swift.
+4. **GPU and disk columns: code done, not run yet.** Sampling/ProcessGPUSampler.swift. CHECK on the Mac that
+   accumulatedGPUTime really is in nanoseconds: summed per-process GPU % should roughly match the GPU tile.
+   If it's ~41x too small it's 24 MHz ticks. AppStorage key is now "processHiddenColumnsV2".
+5. **Battery: code done, not run yet.** Sampling/BatterySampler.swift, Views/BatteryDetailView.swift. Graph is
+   |battery power| (no signed graph). CHECK: Temperature scale (0.01 °C), Amperage sign, AdapterDetails name.
+
+All of the above built on GitHub Actions (macos-15, warnings as errors) but have not been launched.
+Next on the Mac: run each page in the background, check values, screenshots, footprint table, DMG.
 
 ## Measuring (no hooks in the repo)
 Copy the sources to a scratch folder and add a temporary hook there:
