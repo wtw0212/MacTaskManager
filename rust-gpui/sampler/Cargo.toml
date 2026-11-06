@@ -1,0 +1,16 @@
+[package]
+name = "sampler"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "System statistics for the Task Manager, read with Apple APIs (mach, sysctl, libproc, IOKit)."
+
+[dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSProcessInfo", "NSEnumerator"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSWorkspace", "NSRunningApplication"] }

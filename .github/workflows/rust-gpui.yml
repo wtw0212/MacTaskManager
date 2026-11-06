@@ -1,0 +1,71 @@
+name: Rust GPUI
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "rust-gpui/**"
+      - "bench/**"
+      - "Sources/**"
+      - "Package.swift"
+      - ".github/workflows/rust-gpui.yml"
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: Seconds to measure each app on each page
+        default: "60"
+
+concurrency:
+  group: rust-gpui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchains
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustc --version
+          swift --version
+          xcrun -f metal || echo "No Metal compiler; GPUI will use runtime shaders"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust-gpui/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('rust-gpui/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - name: Clippy (warnings as errors)
+        working-directory: rust-gpui
+        run: cargo clippy --release --all-targets -- -D warnings
+      - name: Compare Swift and Rust
+        env:
+          DURATION: ${{ github.event.inputs.duration || '30' }}
+          WARMUP: "10"
+          SCREENSHOTS: "1"
+          OUT: bench/results/ci
+        run: |
+          chmod +x bench/compare.sh
+          ./bench/compare.sh
+          {
+            echo "## Swift vs Rust on the GitHub macOS runner"
+            echo
+            echo "Virtual machine without a real GPU; use the numbers to compare the two apps, not as absolute values."
+            echo
+            cat bench/results/ci/report.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: comparison
+          path: bench/results/ci
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TaskManagerGPUI
+          path: rust-gpui/target/release/TaskManagerGPUI
+          retention-days: 14
