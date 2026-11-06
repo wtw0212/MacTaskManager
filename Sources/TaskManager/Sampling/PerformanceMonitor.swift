@@ -69,6 +69,9 @@ final class PerformanceMonitor: ObservableObject {
     @Published private(set) var temperature = TemperatureReading()
     @Published private(set) var thermalState = ProcessInfo.processInfo.thermalState
     @Published private(set) var processCount = 0
+    @Published private(set) var threadCount: Int?
+    /// Open files in every process; needs the privileged helper (nil without it).
+    @Published private(set) var handleCount: Int?
     @Published private(set) var uptime: TimeInterval = 0
 
     // Memory
@@ -143,6 +146,11 @@ final class PerformanceMonitor: ObservableObject {
         processes = processSampler?.sample() ?? []
     }
 
+    /// View > Refresh now.
+    func refreshNow() {
+        tick()
+    }
+
     private func tick() {
         let now = Date()
         let elapsed = max(now.timeIntervalSince(lastTick), 0.001)
@@ -172,6 +180,11 @@ final class PerformanceMonitor: ObservableObject {
         }
 
         processCount = SystemInfo.processCount()
+        threadCount = SystemInfo.threadCount()
+        if tickCount % 5 == 1 {
+            let helper = PrivilegedHelper.shared
+            handleCount = helper.isRunning ? helper.sample().values.reduce(0) { $0 + $1.handles } : nil
+        }
         uptime = SystemInfo.bootTime.map { now.timeIntervalSince($0) } ?? ProcessInfo.processInfo.systemUptime
     }
 

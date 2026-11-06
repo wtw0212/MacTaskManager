@@ -26,15 +26,17 @@ enum AppPreferences {
 
     @MainActor
     static func apply(theme: AppTheme, alwaysOnTop: Bool) {
-        let update = {
-            NSApp.appearance = theme.appearance
-            for window in NSApp.windows where window.styleMask.contains(.titled) && !(window is NSPanel) {
-                window.level = alwaysOnTop ? .floating : .normal
-            }
-        }
-        update()
+        applyNow(theme: theme, alwaysOnTop: alwaysOnTop)
         // The window may not be on screen yet when the app starts.
-        DispatchQueue.main.async(execute: update)
+        DispatchQueue.main.async { applyNow(theme: theme, alwaysOnTop: alwaysOnTop) }
+    }
+
+    @MainActor
+    private static func applyNow(theme: AppTheme, alwaysOnTop: Bool) {
+        NSApp.appearance = theme.appearance
+        for window in NSApp.windows where window.styleMask.contains(.titled) && !(window is NSPanel) {
+            window.level = alwaysOnTop ? .floating : .normal
+        }
     }
 }
 

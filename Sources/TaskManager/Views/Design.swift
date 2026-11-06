@@ -303,6 +303,13 @@ struct ListSectionTitle: View {
 
 // MARK: - Resource panels
 
+/// The text a Performance page puts on the clipboard for "Copy", gathered from its header,
+/// stats and info table in reading order.
+struct CopyLinesKey: PreferenceKey {
+    static let defaultValue: [String] = []
+    static func reduce(value: inout [String], nextValue: () -> [String]) { value += nextValue() }
+}
+
 /// "CPU" big title on the left, device name on the right.
 struct ResourceHeader: View {
     var title: String
@@ -318,6 +325,7 @@ struct ResourceHeader: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+        .preference(key: CopyLinesKey.self, value: [title, "", "\t\(subtitle)", ""])
     }
 }
 
@@ -386,6 +394,7 @@ struct Stat: View {
             }
         }
         .fixedSize()
+        .preference(key: CopyLinesKey.self, value: ["\t\(label)\t\(value)"])
     }
 }
 
@@ -404,6 +413,7 @@ struct InfoTable: View {
             }
         }
         .font(DS.Typeface.body)
+        .preference(key: CopyLinesKey.self, value: rows.map { "\t\($0.0)\t\($0.1)" })
     }
 }
 
@@ -412,7 +422,18 @@ struct StatsArea<Stats: View>: View {
     var info: [(String, String)]
     @ViewBuilder var stats: Stats
 
+    @AppStorage("graphSummaryView") private var summary = false
+
     var body: some View {
+        if summary {
+            // Graph summary view: out of sight, but still there for Copy.
+            content.frame(height: 0).hidden()
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         // Info table beside the stats when there's room, below them when there isn't,
         // so labels and values never wrap or get cut off.
         ViewThatFits(in: .horizontal) {

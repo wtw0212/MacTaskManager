@@ -104,6 +104,7 @@ struct UsersView: View {
         Button("End task") { ProcessSampler.terminate(process.id, force: false) }
         Button("Force quit") { ProcessSampler.terminate(process.id, force: true) }
         Divider()
+        Button("Go to details") { DetailsNavigation.show(process.id) }
         if let path = process.path {
             Button("Open file location") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])

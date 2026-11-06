@@ -78,7 +78,7 @@ struct DetailsView: View {
             }
             .onAppear {
                 // Arriving from "Go to details" on another page.
-                if let selection { DispatchQueue.main.async { proxy.scrollTo(selection, anchor: .center) } }
+                if let selection { proxy.scrollTo(selection, anchor: .center) }
             }
             .onChange(of: storedSelection) { id in
                 if id != 0 { proxy.scrollTo(pid_t(id)) }
