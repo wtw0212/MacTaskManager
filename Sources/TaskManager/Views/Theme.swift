@@ -63,6 +63,12 @@ enum Theme {
         return unit == 0 ? "\(Int(value)) \(units[0])" : String(format: "%.1f %@", value, units[unit])
     }
 
+    /// Accumulated CPU time as Windows shows it, e.g. "1:04:09".
+    static func cpuTime(_ seconds: Double) -> String {
+        let total = Int(max(seconds, 0))
+        return String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+    }
+
     static func watts(_ value: Double?) -> String {
         guard let value else { return "N/A" }
         return String(format: "%.1f W", value)

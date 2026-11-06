@@ -36,6 +36,18 @@ final class ProcessNetworkSampler {
     }
 
     private func sample() -> [pid_t: Double]? {
+        let totals = Self.totals() ?? [:]
+        let now = ProcessInfo.processInfo.systemUptime
+        defer { previous = totals; previousTime = now }
+        guard !totals.isEmpty, let previousTime, now > previousTime else { return nil }
+        return totals.reduce(into: [:]) { result, entry in
+            result[entry.key] = max(entry.value - (previous[entry.key] ?? entry.value), 0) / (now - previousTime)
+        }
+    }
+
+    /// One nettop run: bytes received + sent by each process's current connections, by PID.
+    /// Blocks for about a second; call it off the main thread. nil when nettop can't run.
+    static func totals() -> [pid_t: Double]? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
         process.arguments = ["-P", "-n", "-L", "1", "-x", "-J", "bytes_in,bytes_out"]
@@ -53,14 +65,9 @@ final class ProcessNetworkSampler {
 
         var totals: [pid_t: Double] = [:]
         for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
-            if let (pid, bytes) = Self.parse(line) { totals[pid, default: 0] += bytes }
+            if let (pid, bytes) = parse(line) { totals[pid, default: 0] += bytes }
         }
-        let now = ProcessInfo.processInfo.systemUptime
-        defer { previous = totals; previousTime = now }
-        guard !totals.isEmpty, let previousTime, now > previousTime else { return nil }
-        return totals.reduce(into: [:]) { result, entry in
-            result[entry.key] = max(entry.value - (previous[entry.key] ?? entry.value), 0) / (now - previousTime)
-        }
+        return totals
     }
 
     /// "name.pid,bytes_in,bytes_out," -> (pid, bytes). The name may itself contain dots.

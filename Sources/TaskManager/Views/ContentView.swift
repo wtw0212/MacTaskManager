@@ -8,6 +8,7 @@ struct ContentView: View {
         // Windows' order.
         case processes = "Processes"
         case performance = "Performance"
+        case appHistory = "App history"
         case startup = "Startup apps"
         case users = "Users"
         case services = "Services"
@@ -18,6 +19,7 @@ struct ContentView: View {
             switch self {
             case .processes: .processes
             case .performance: .performance
+            case .appHistory: .history
             case .startup: .startup
             case .users: .users
             case .services: .services
@@ -47,6 +49,7 @@ struct ContentView: View {
                     switch page {
                     case .processes: ProcessesView(search: search)
                     case .performance: PerformanceView()
+                    case .appHistory: AppHistoryView(search: search)
                     case .startup: StartupView(search: search)
                     case .users: UsersView(search: search)
                     case .services: ServicesView(search: search)

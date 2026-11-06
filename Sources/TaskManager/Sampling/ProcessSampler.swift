@@ -177,6 +177,11 @@ final class ProcessSampler {
         return name
     }
 
+    /// The process macOS holds responsible for `pid`: the app, for its helpers.
+    static func responsiblePID(_ pid: pid_t) -> pid_t {
+        responsibility_get_pid_responsible_for_pid(pid)
+    }
+
     // MARK: Actions
 
     static func terminate(_ pid: pid_t, force: Bool) {
