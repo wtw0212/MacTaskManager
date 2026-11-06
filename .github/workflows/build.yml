@@ -18,7 +18,12 @@ jobs:
       - name: Swift version
         run: swift --version
       - name: Build (debug, warnings as errors)
-        run: swift build -Xswiftc -warnings-as-errors
+        run: |
+          set -o pipefail
+          swift build -Xswiftc -warnings-as-errors 2>&1 | tee build.log
+      - name: Summarize errors
+        if: failure()
+        run: grep -E "(error|warning):" build.log | sort -u || true
       - name: Build release app and DMG
         run: |
           chmod +x scripts/make-dmg.sh

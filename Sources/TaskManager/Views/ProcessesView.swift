@@ -100,9 +100,9 @@ struct ProcessGroup: Identifiable {
     var statusText: String {
         if let statusOverride { return statusOverride }
         switch main.status {
-        case .suspended: "Suspended"
-        case .efficiency: "Efficiency mode"
-        case nil: ""
+        case .suspended: return "Suspended"
+        case .efficiency: return "Efficiency mode"
+        case nil: return ""
         }
     }
 
