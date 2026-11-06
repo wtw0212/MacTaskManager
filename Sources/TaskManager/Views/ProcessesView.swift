@@ -222,8 +222,14 @@ struct ProcessesView: View {
             }
         } message: { Text($0.message) }
         .sheet(item: $properties) { ProcessPropertiesView(row: $0) }
-        .onAppear { keys.start() }
-        .onDisappear { keys.stop() }
+        .onAppear {
+            keys.start()
+            monitor.samplesProcesses = true
+        }
+        .onDisappear {
+            keys.stop()
+            monitor.samplesProcesses = false
+        }
     }
 
     // MARK: Rows
@@ -243,6 +249,8 @@ struct ProcessesView: View {
                 .padding(.horizontal, DS.Space.s)
                 .padding(.vertical, groupByType ? 0 : DS.Space.s)
                 .padding(.bottom, DS.Space.l)
+                .font(DS.Typeface.body.monospacedDigit())
+                .lineLimit(1)
             }
             .onChange(of: selection) { id in
                 if let id { proxy.scrollTo(id) }
@@ -253,14 +261,22 @@ struct ProcessesView: View {
     @ViewBuilder
     private func groupRows(_ group: ProcessGroup, _ columns: [ProcessColumn], _ context: ProcessContext) -> some View {
         let isExpanded = expanded.contains(group.id)
-        ProcessLine(group: group, title: group.title, icon: group.main.icon, indent: 0,
-                    disclosure: group.children.isEmpty ? nil : isExpanded,
-                    columns: columns, context: context, isSelected: selection == group.id,
-                    toggle: { toggle(group.id) })
-            .id(group.id)
-            .onTapGesture(count: 2) { toggle(group.id) }
-            .onTapGesture { selection = group.id }
-            .contextMenu { menu(for: group, columns, context) }
+        let line = ProcessLine(group: group, title: group.title, icon: group.main.icon, indent: 0,
+                               disclosure: group.children.isEmpty ? nil : isExpanded,
+                               columns: columns, context: context, isSelected: selection == group.id,
+                               toggle: { toggle(group.id) })
+        if group.children.isEmpty {
+            line
+                .id(group.id)
+                .onTapGesture { selection = group.id }
+                .contextMenu { menu(for: group, columns, context) }
+        } else {
+            line
+                .id(group.id)
+                .onTapGesture(count: 2) { toggle(group.id) }
+                .onTapGesture { selection = group.id }
+                .contextMenu { menu(for: group, columns, context) }
+        }
 
         if isExpanded {
             ForEach(group.children) { child in
@@ -562,53 +578,73 @@ private struct ProcessLine: View {
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: DS.Space.s) {
-                Button(action: toggle) {
-                    Fluent(.chevronRight, size: 10)
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(disclosure == true ? 90 : 0))
-                        .frame(width: DS.Size.icon, height: DS.Size.listRow)
-                        .contentShape(Rectangle())
+                if let disclosure {
+                    Button(action: toggle) {
+                        Fluent(.chevronRight, size: 10)
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(disclosure ? 90 : 0))
+                            .frame(width: DS.Size.icon, height: DS.Size.listRow)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Color.clear.frame(width: DS.Size.icon, height: DS.Size.listRow)
                 }
-                .buttonStyle(.plain)
-                .opacity(disclosure == nil ? 0 : 1)
-                .disabled(disclosure == nil)
 
                 Image(nsImage: icon ?? Self.genericIcon)
                     .resizable()
                     .frame(width: DS.Size.icon, height: DS.Size.icon)
-                Text(title)
-                    .font(DS.Typeface.body)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                Text(title).font(DS.Typeface.body)
             }
             .padding(.leading, DS.Space.s + CGFloat(indent) * (DS.Size.icon + DS.Space.s))
             .frame(minWidth: DS.Size.nameColumnMin, maxWidth: .infinity, alignment: .leading)
 
-            ForEach(columns) { cell($0) }
+            HStack(spacing: 2) {
+                ForEach(columns) { cell($0) }
+            }
+            .padding(.horizontal, 1)
         }
         .frame(height: DS.Size.listRow)
         .rowHighlight(isSelected: isSelected)
     }
 
+    /// Fonts and line limits are set once per list (see `rows`) rather than on each cell:
+    /// every modifier here is repeated for each column of each realized row.
+    @ViewBuilder
     private func cell(_ column: ProcessColumn) -> some View {
         let value = group.cell(column, context)
-        return HStack(spacing: DS.Space.xs) {
-            if column == .status, let status = group.main.status {
-                Fluent(status == .efficiency ? .efficiency : .pause, size: DS.Size.icon)
-                    .foregroundStyle(status == .efficiency ? DS.Palette.efficiency : .secondary)
+        switch column {
+        case .status:
+            HStack(spacing: DS.Space.xs) {
+                if let status = group.main.status {
+                    Fluent(status == .efficiency ? .efficiency : .pause, size: DS.Size.icon)
+                        .foregroundStyle(status == .efficiency ? DS.Palette.efficiency : .secondary)
+                }
+                Text(value.text)
             }
+            .modifier(CellFrame(column: column, heat: value.heat))
+        case .path:
             Text(value.text)
-                .lineLimit(1)
-                .truncationMode(column == .path ? .middle : .tail)
+                .truncationMode(.middle)
+                .modifier(CellFrame(column: column, heat: value.heat))
+                .help(value.text)
+        default:
+            Text(value.text)
                 .minimumScaleFactor(column.isNumeric ? 0.6 : 1)
+                .modifier(CellFrame(column: column, heat: value.heat))
         }
-        .font(DS.Typeface.body)
-        .monospacedDigit()
-        .padding(.horizontal, DS.Space.s)
-        .frame(width: column.width - 2, height: DS.Size.listRow, alignment: column.isNumeric ? .trailing : .leading)
-        .background(value.heat.map { DS.Palette.heat($0) } ?? .clear)
-        .padding(.horizontal, 1)
-        .help(column == .path ? value.text : "")
+    }
+}
+
+private struct CellFrame: ViewModifier {
+    var column: ProcessColumn
+    var heat: Double?
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, DS.Space.s)
+            .frame(width: column.width - 2, height: DS.Size.listRow, alignment: column.isNumeric ? .trailing : .leading)
+            .background(heat.map { DS.Palette.heat($0) } ?? .clear)
     }
 }
 
