@@ -34,6 +34,12 @@ struct NetworkState: Identifiable {
     var sendHistory = PerformanceMonitor.emptyHistory
 }
 
+struct BatteryState {
+    var reading: BatteryReading
+    /// Battery power in watts as a magnitude (charging or discharging), for the graphs.
+    var powerHistory = PerformanceMonitor.emptyHistory
+}
+
 /// Windows' View > Update speed.
 enum UpdateSpeed: String, CaseIterable, Identifiable {
     case high = "High", normal = "Normal", low = "Low", paused = "Paused"
@@ -74,6 +80,8 @@ final class PerformanceMonitor: ObservableObject {
     @Published private(set) var networks: [NetworkState] = []
     @Published private(set) var gpus: [GPUState] = []
     @Published private(set) var startupVolume: (available: UInt64, total: UInt64)?
+    /// nil on Macs without a battery.
+    @Published private(set) var battery: BatteryState?
 
     // Processes (only sampled while the Processes tab is open)
     @Published private(set) var processes: [ProcessRow] = []
@@ -88,6 +96,7 @@ final class PerformanceMonitor: ObservableObject {
 
     private let cpu = CPUSampler()
     private let temperatureSampler = TemperatureSampler()
+    private let batterySampler = BatterySampler()
     private var processSampler: ProcessSampler?
     private var interfaceNames: [String: String] = NetworkSampler.displayNames()
     private var lastTick = Date()
@@ -152,6 +161,7 @@ final class PerformanceMonitor: ObservableObject {
         sampleDisks(elapsed: elapsed)
         sampleNetworks(elapsed: elapsed)
         sampleGPUs()
+        sampleBattery()
 
         if tickCount % 10 == 1 {
             startupVolume = DiskSampler.startupVolume()
@@ -236,6 +246,17 @@ final class PerformanceMonitor: ObservableObject {
             Self.push(reading.tiler ?? 0, onto: &state.tilerHistory)
             return state
         }
+    }
+
+    private func sampleBattery() {
+        guard let reading = batterySampler?.sample() else {
+            battery = nil
+            return
+        }
+        var state = battery ?? BatteryState(reading: reading)
+        state.reading = reading
+        Self.push(abs(reading.power ?? 0), onto: &state.powerHistory)
+        battery = state
     }
 
     private static func push(_ value: Double, onto history: inout [Double]) {

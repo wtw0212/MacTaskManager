@@ -67,6 +67,7 @@ enum DS {
         static let disk = Color(red: 0.30, green: 0.65, blue: 0.05)
         static let network = Color(red: 0.65, green: 0.31, blue: 0.0)
         static let gpu = Color(red: 0.0, green: 0.52, blue: 0.62)
+        static let battery = Color(red: 0.72, green: 0.53, blue: 0.0)
         /// Windows' green efficiency-mode leaf.
         static let efficiency = Color(red: 0.06, green: 0.55, blue: 0.24)
 

@@ -6,6 +6,7 @@ enum Resource: Hashable {
     case disk(String)
     case network(String)
     case gpu(Int)
+    case battery
 }
 
 struct PerformanceView: View {
@@ -63,6 +64,11 @@ struct PerformanceView: View {
         ForEach(monitor.gpus) { gpu in
             tile(.gpu(gpu.id), "GPU \(gpu.id)", [gpu.reading.name, gpuSubtitle(gpu)], gpu.history, DS.Palette.gpu)
         }
+
+        if let battery = monitor.battery {
+            tile(.battery, "Battery", [BatteryDetailView.state(battery.reading), batterySubtitle(battery.reading)],
+                 battery.powerHistory, DS.Palette.battery, maxValue: BatteryDetailView.scale(battery))
+        }
     }
 
     private func tile(_ resource: Resource, _ title: String, _ lines: [String], _ values: [Double], _ color: Color,
@@ -80,6 +86,10 @@ struct PerformanceView: View {
     private func gpuSubtitle(_ gpu: GPUState) -> String {
         let temperature = monitor.temperature.gpu.map { " (\(Theme.temperature($0)))" } ?? ""
         return Theme.percent(gpu.reading.utilization) + temperature
+    }
+
+    private func batterySubtitle(_ reading: BatteryReading) -> String {
+        Theme.percent(reading.charge) + (reading.power.map { "  " + Theme.watts(abs($0)) } ?? "")
     }
 
     /// "S: 8.0  R: 16.4 Kbps": like Windows, the unit is printed once when both rates share it,
@@ -116,6 +126,12 @@ struct PerformanceView: View {
             }
         case .gpu(let index) where index < monitor.gpus.count:
             GPUDetailView(gpu: monitor.gpus[index])
+        case .battery:
+            if let battery = monitor.battery {
+                BatteryDetailView(battery: battery)
+            } else {
+                CPUDetailView()
+            }
         default:
             CPUDetailView()
         }

@@ -63,6 +63,16 @@ enum Theme {
         return unit == 0 ? "\(Int(value)) \(units[0])" : String(format: "%.1f %@", value, units[unit])
     }
 
+    static func watts(_ value: Double?) -> String {
+        guard let value else { return "N/A" }
+        return String(format: "%.1f W", value)
+    }
+
+    /// Minutes as "2 h 05 min" or "45 min".
+    static func duration(minutes: Int) -> String {
+        minutes >= 60 ? String(format: "%d h %02d min", minutes / 60, minutes % 60) : "\(minutes) min"
+    }
+
     static func temperature(_ celsius: Double?) -> String {
         guard let celsius else { return "N/A" }
         return String(format: "%.0f °C", celsius)
