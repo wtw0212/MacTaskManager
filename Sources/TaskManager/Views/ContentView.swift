@@ -11,7 +11,10 @@ struct ContentView: View {
         case appHistory = "App history"
         case startup = "Startup apps"
         case users = "Users"
+        case details = "Details"
         case services = "Services"
+        /// Shown at the bottom of the navigation rail, as in Windows.
+        case settings = "Settings"
 
         var id: Self { self }
 
@@ -22,12 +25,17 @@ struct ContentView: View {
             case .appHistory: .history
             case .startup: .startup
             case .users: .users
+            case .details: .details
             case .services: .services
+            case .settings: .settings
             }
         }
 
         /// Pages that show per-process values; processes are only sampled while one is open.
-        var samplesProcesses: Bool { self == .processes || self == .users }
+        var samplesProcesses: Bool { self == .processes || self == .users || self == .details }
+
+        /// The pages listed at the top of the navigation rail.
+        static var main: [Page] { allCases.filter { $0 != .settings } }
     }
 
     /// A plain reference, not an observed object, so this view doesn't redraw on every tick.
@@ -35,6 +43,10 @@ struct ContentView: View {
 
     @AppStorage("selectedPage") private var page: Page = .performance
     @AppStorage("navigationCollapsed") private var collapsed = false
+    @AppStorage(AppPreferences.startPageKey) private var startPage = ""
+    @AppStorage(AppPreferences.themeKey) private var theme = AppTheme.system
+    @AppStorage(AppPreferences.alwaysOnTopKey) private var alwaysOnTop = false
+    @AppStorage(AppPreferences.graphSummaryKey) private var graphSummary = false
     @State private var search = ""
     @FocusState private var searchFocused: Bool
 
@@ -43,7 +55,10 @@ struct ContentView: View {
             TitleBar(search: $search, focus: $searchFocused)
 
             HStack(spacing: 0) {
-                NavigationRail(page: $page, collapsed: $collapsed)
+                // Graph summary view shows only the selected graph, as in Windows.
+                if !(graphSummary && page == .performance) {
+                    NavigationRail(page: $page, collapsed: $collapsed)
+                }
 
                 Group {
                     switch page {
@@ -52,7 +67,9 @@ struct ContentView: View {
                     case .appHistory: AppHistoryView(search: search)
                     case .startup: StartupView(search: search)
                     case .users: UsersView(search: search)
+                    case .details: DetailsView(search: search)
                     case .services: ServicesView(search: search)
+                    case .settings: SettingsView()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -70,8 +87,18 @@ struct ContentView: View {
                 .allowsHitTesting(false)
         }
         .ignoresSafeArea(.container, edges: .top)
-        .onAppear { monitor.samplesProcesses = page.samplesProcesses }
+        .onAppear {
+            // The default start page, unless a page was passed on the command line (-selectedPage).
+            if UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["selectedPage"] == nil,
+               let start = Page(rawValue: startPage) {
+                page = start
+            }
+            monitor.samplesProcesses = page.samplesProcesses
+            AppPreferences.apply(theme: theme, alwaysOnTop: alwaysOnTop)
+        }
         .onChange(of: page) { monitor.samplesProcesses = $0.samplesProcesses }
+        .onChange(of: theme) { AppPreferences.apply(theme: $0, alwaysOnTop: alwaysOnTop) }
+        .onChange(of: alwaysOnTop) { AppPreferences.apply(theme: theme, alwaysOnTop: $0) }
     }
 }
 
@@ -165,13 +192,17 @@ private struct NavigationRail: View {
             }
             .padding(.bottom, DS.Space.s)
 
-            ForEach(ContentView.Page.allCases) { item in
+            ForEach(ContentView.Page.main) { item in
                 NavigationButton(icon: item.icon, title: item.rawValue, isSelected: item == page,
                                  collapsed: collapsed, help: item.rawValue) {
                     page = item
                 }
             }
             Spacer()
+            NavigationButton(icon: ContentView.Page.settings.icon, title: ContentView.Page.settings.rawValue,
+                             isSelected: page == .settings, collapsed: collapsed, help: "Settings") {
+                page = .settings
+            }
         }
         .padding(.horizontal, DS.Space.xs + 2)
         .padding(.bottom, DS.Space.s)

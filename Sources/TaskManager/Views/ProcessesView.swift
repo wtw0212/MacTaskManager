@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// the rest can be turned on and off by right-clicking the column headers.
 enum ProcessColumn: String, CaseIterable, Identifiable {
     case status, pid, user, cpu, memory, disk, diskRead, diskWrite, network, gpu, gpuEngine, energy, threads,
-         architecture, path
+         handles, priority, architecture, description, path
 
     var id: Self { self }
 
@@ -25,19 +25,25 @@ enum ProcessColumn: String, CaseIterable, Identifiable {
         case .network: "Network"
         case .energy: "Power usage"
         case .threads: "Threads"
+        case .handles: "Handles"
+        case .priority: "Base priority"
         case .architecture: "Architecture"
+        case .description: "Description"
         case .path: "Path"
         }
     }
 
     var isOptional: Bool { ![.cpu, .memory, .disk, .network].contains(self) }
-    var isNumeric: Bool { [.pid, .cpu, .memory, .disk, .diskRead, .diskWrite, .network, .gpu, .threads].contains(self) }
+    var isNumeric: Bool { [.pid, .cpu, .memory, .disk, .diskRead, .diskWrite, .network, .gpu, .threads, .handles].contains(self) }
+    /// Sorted by an underlying value rather than by the text shown.
+    var sortsByValue: Bool { isNumeric || self == .energy || self == .priority }
 
     var width: CGFloat {
         switch self {
         case .status: DS.Size.statusColumn
-        case .pid, .threads: DS.Size.narrowColumn
+        case .pid, .threads, .handles: DS.Size.narrowColumn
         case .path: DS.Size.pathColumn
+        case .description: DS.Size.descriptionColumn
         default: DS.Size.valueColumn
         }
     }
@@ -54,6 +60,37 @@ enum PowerUsage {
     }
 }
 
+/// Windows' priority classes, mapped onto nice values (macOS has no classes, only -20...20).
+enum PriorityClass: String, CaseIterable, Identifiable {
+    case realtime = "Realtime", high = "High", aboveNormal = "Above normal", normal = "Normal",
+         belowNormal = "Below normal", low = "Low"
+
+    var id: Self { self }
+
+    /// The nice value set for this class.
+    var nice: Int32 {
+        switch self {
+        case .realtime: -20
+        case .high: -10
+        case .aboveNormal: -5
+        case .normal: 0
+        case .belowNormal: 5
+        case .low: 20
+        }
+    }
+
+    init(nice: Int32) {
+        switch nice {
+        case ...(-15): self = .realtime
+        case ...(-8): self = .high
+        case ..<0: self = .aboveNormal
+        case 0: self = .normal
+        case ...10: self = .belowNormal
+        default: self = .low
+        }
+    }
+}
+
 /// What rows need from the rest of the system to show values and percentages.
 struct ProcessContext {
     var totalMemory: Double
@@ -65,6 +102,8 @@ struct ProcessContext {
     var memoryAsPercent: Bool
     var diskAsPercent: Bool
     var networkAsPercent: Bool
+    /// Shows "Running" in the Status column instead of leaving it empty (the Details page).
+    var showsRunning = false
 }
 
 /// An app (with its helper processes) or a single background process.
@@ -96,12 +135,14 @@ struct ProcessGroup: Identifiable {
     var networkRate: Double? { total(\.networkRate) }
     var energy: Double? { total(\.energy) }
     var threads: Double? { total { Double($0.threads ?? -1) } }
+    var handles: Double? { total { Double($0.handles ?? -1) } }
 
     var statusText: String {
         if let statusOverride { return statusOverride }
         switch main.status {
         case .suspended: return "Suspended"
         case .efficiency: return "Efficiency mode"
+        case .notResponding: return "Not responding"
         case nil: return ""
         }
     }
@@ -109,12 +150,15 @@ struct ProcessGroup: Identifiable {
     /// Text and heat shading (nil: none) for a column.
     func cell(_ column: ProcessColumn, _ context: ProcessContext) -> (text: String, heat: Double?) {
         switch column {
-        case .status: return (statusText, nil)
+        case .status: return (statusText.isEmpty && context.showsRunning ? "Running" : statusText, nil)
         case .pid: return ("\(main.id)", nil)
         case .user: return (main.user, nil)
         case .architecture: return (main.architecture, nil)
         case .path: return (main.path ?? "", nil)
         case .threads: return (threads.map { "\(Int($0))" } ?? "–", nil)
+        case .handles: return (handles.map { "\(Int($0))" } ?? "–", nil)
+        case .priority: return (PriorityClass(nice: main.nice).rawValue, nil)
+        case .description: return (main.description, nil)
         case .cpu:
             guard let cpu else { return ("–", 0) }
             return (Theme.precisePercent(cpu), cpu / 0.25)
@@ -159,7 +203,7 @@ struct ProcessGroup: Identifiable {
     static func sorted(_ groups: [ProcessGroup], by column: ProcessColumn?, ascending: Bool,
                        context: ProcessContext) -> [ProcessGroup] {
         let isOrdered = { (a: ProcessGroup, b: ProcessGroup) -> Bool in
-            if let column, column.isNumeric || column == .energy {
+            if let column, column.sortsByValue {
                 return (a.sortValue(column) ?? -1) < (b.sortValue(column) ?? -1)
             }
             let text = { (group: ProcessGroup) in column.map { group.cell($0, context).text } ?? group.main.name }
@@ -181,7 +225,10 @@ struct ProcessGroup: Identifiable {
         case .network: networkRate
         case .energy: energy
         case .threads: threads
-        case .status, .user, .architecture, .path, .gpuEngine: nil
+        case .handles: handles
+        // Higher priority (lower nice) sorts as the larger value.
+        case .priority: Double(-main.nice)
+        case .status, .user, .architecture, .description, .path, .gpuEngine: nil
         }
     }
 }
@@ -224,14 +271,6 @@ struct ProcessesView: View {
         var groups: [ProcessGroup]
     }
 
-    private struct ProcessAlert {
-        var title: String
-        var message: String
-        /// Destructive confirmation button; nil for a plain OK alert.
-        var confirm: String?
-        var action: () -> Void = {}
-    }
-
     var search: String
 
     @EnvironmentObject private var monitor: PerformanceMonitor
@@ -244,8 +283,10 @@ struct ProcessesView: View {
     @State private var alert: ProcessAlert?
     @State private var properties: ProcessRow?
 
-    // V2: new optional columns (GPU engine, disk read/write) start hidden for existing users too.
-    @AppStorage("processHiddenColumnsV2") private var hiddenColumns = "pid,user,diskRead,diskWrite,gpuEngine,threads,architecture,path"
+    // V3: new optional columns (handles, priority, description) start hidden, keeping earlier choices.
+    @AppStorage("processHiddenColumnsV3") private var hiddenColumns =
+        (UserDefaults.standard.string(forKey: "processHiddenColumnsV2") ?? "pid,user,diskRead,diskWrite,gpuEngine,threads,architecture,path")
+        + ",handles,priority,description"
     @AppStorage("groupByType") private var groupByType = true
     @AppStorage("memoryAsPercent") private var memoryAsPercent = false
     @AppStorage("diskAsPercent") private var diskAsPercent = false
@@ -271,6 +312,7 @@ struct ProcessesView: View {
                 .disabled(selected == nil)
                 CommandMenu(title: "View", icon: .view) { viewMenu(sections) }
             }
+            HelperBanner()
 
             // Scrolls sideways when the visible columns don't fit, like Windows.
             GeometryReader { geometry in
@@ -284,15 +326,7 @@ struct ProcessesView: View {
                 }
             }
         }
-        .alert(alert?.title ?? "", isPresented: Binding(get: { alert != nil }, set: { if !$0 { alert = nil } }),
-               presenting: alert) { alert in
-            if let confirm = alert.confirm {
-                Button(confirm, role: .destructive, action: alert.action)
-                Button("Cancel", role: .cancel) {}
-            } else {
-                Button("OK") {}
-            }
-        } message: { Text($0.message) }
+        .processAlert($alert)
         .sheet(item: $properties) { ProcessPropertiesView(row: $0) }
         // ContentView turns process sampling on and off with the page.
         .onAppear { keys.start() }
@@ -378,12 +412,14 @@ struct ProcessesView: View {
         }
         Button("End task") { ProcessSampler.terminate(row.id, force: false) }
         Button("Force quit") { ProcessSampler.terminate(row.id, force: true) }
+        Button("End process tree") { alert = .endProcessTree(row) { monitor.refreshProcesses() } }
         Divider()
         Toggle("Efficiency mode", isOn: Binding(get: { row.status == .efficiency },
                                                 set: { setEfficiency(group, $0) }))
         Button(row.status == .suspended ? "Resume" : "Suspend…") { suspend(group, row.status != .suspended) }
         resourceValuesMenu
         Divider()
+        Button("Go to details") { DetailsNavigation.show(row.id) }
         if let path = row.path {
             Button("Open file location") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
@@ -690,7 +726,7 @@ struct CellFrame: ViewModifier {
 }
 
 /// Windows' Properties, as a sheet: where the process lives, who runs it and how it was started.
-private struct ProcessPropertiesView: View {
+struct ProcessPropertiesView: View {
     var row: ProcessRow
 
     @Environment(\.dismiss) private var dismiss
@@ -711,6 +747,8 @@ private struct ProcessPropertiesView: View {
                 ("Started", row.startTime?.formatted(date: .abbreviated, time: .standard) ?? "Unknown"),
                 ("Architecture", row.architecture),
                 ("Threads", row.threads.map(String.init) ?? "Unknown"),
+                ("Handles", row.handles.map(String.init) ?? "Unknown"),
+                ("Base priority", "\(PriorityClass(nice: row.nice).rawValue) (nice \(row.nice))"),
             ])
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 Text("Location").font(DS.Typeface.bodyStrong)
@@ -743,7 +781,7 @@ private struct ProcessPropertiesView: View {
 
 /// Feeds key presses to the Processes list while it's on screen, except while typing
 /// in a text field or when a sheet or alert is up. (`onKeyPress` needs macOS 14.)
-private final class KeyMonitor: ObservableObject {
+final class KeyMonitor: ObservableObject {
     var handler: (NSEvent) -> Bool = { _ in false }
     private var token: Any?
 
@@ -771,20 +809,3 @@ enum SearchOnline {
     }
 }
 
-/// Lets the user pick an app or program to launch, like Windows' "Run new task".
-enum RunNewTask {
-    @MainActor
-    static func present() {
-        let panel = NSOpenPanel()
-        panel.title = "Run new task"
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        panel.allowedContentTypes = [.application, .unixExecutable]
-        panel.canChooseDirectories = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        if url.pathExtension == "app" {
-            NSWorkspace.shared.openApplication(at: url, configuration: .init())
-        } else {
-            NSWorkspace.shared.open(url)
-        }
-    }
-}

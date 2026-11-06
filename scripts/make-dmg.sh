@@ -12,15 +12,17 @@ APP="$DIST/$APP_NAME.app"
 
 # Universal binary if the toolchain supports it, otherwise native only.
 if swift build -c release --arch arm64 --arch x86_64; then
-    BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/$EXECUTABLE"
+    BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
 else
     swift build -c release
-    BIN="$(swift build -c release --show-bin-path)/$EXECUTABLE"
+    BIN_DIR="$(swift build -c release --show-bin-path)"
 fi
 
 rm -rf "$DIST"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/$EXECUTABLE"
+cp "$BIN_DIR/$EXECUTABLE" "$APP/Contents/MacOS/$EXECUTABLE"
+# The optional privileged helper. The app copies it to /Library only when the user installs it.
+cp "$BIN_DIR/tmhelper" "$APP/Contents/MacOS/tmhelper"
 cp -R LICENSES "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -44,7 +46,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 # Ad-hoc signature so the app launches on Apple Silicon.
-codesign --force --deep --sign - "$APP"
+codesign --force --sign - "$APP/Contents/MacOS/tmhelper"
+codesign --force --sign - "$APP"
 
 STAGING="$(mktemp -d)"
 cp -R "$APP" "$STAGING/"

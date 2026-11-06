@@ -35,6 +35,7 @@ enum DS {
         static let narrowColumn: CGFloat = 72
         static let statusColumn: CGFloat = 140
         static let pathColumn: CGFloat = 260
+        static let descriptionColumn: CGFloat = 200
         static let nameColumnMin: CGFloat = 220
         static let commandButton: CGFloat = 32
         static let tileGraph = CGSize(width: 72, height: 48)
@@ -432,5 +433,50 @@ struct StatsArea<Stats: View>: View {
             stats
         }
         .fixedSize()
+    }
+}
+
+// MARK: - Settings
+
+/// A Windows 11 settings card: title and description on the left, the control on the right.
+struct SettingsRow<Control: View>: View {
+    var title: String
+    var detail: String? = nil
+    @ViewBuilder var control: Control
+
+    var body: some View {
+        HStack(spacing: DS.Space.l) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                Text(title).font(DS.Typeface.body)
+                if let detail {
+                    Text(detail)
+                        .font(DS.Typeface.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: DS.Space.l)
+            control
+        }
+        .padding(.horizontal, DS.Space.l)
+        .padding(.vertical, DS.Space.m)
+        .frame(minHeight: 60)
+        .background(RoundedRectangle(cornerRadius: DS.Radius.control).fill(DS.Palette.fieldBackground))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.control).stroke(DS.Palette.stroke))
+    }
+}
+
+/// A titled group of settings cards.
+struct SettingsSection<Content: View>: View {
+    var title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Text(title)
+                .font(DS.Typeface.bodyStrong)
+                .padding(.bottom, DS.Space.xs)
+            content
+        }
     }
 }
