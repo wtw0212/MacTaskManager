@@ -5,9 +5,11 @@ import SwiftUI
 /// left, and the selected page on a rounded card.
 struct ContentView: View {
     enum Page: String, CaseIterable, Identifiable {
+        // Windows' order.
         case processes = "Processes"
         case performance = "Performance"
         case startup = "Startup apps"
+        case users = "Users"
         case services = "Services"
 
         var id: Self { self }
@@ -17,10 +19,17 @@ struct ContentView: View {
             case .processes: .processes
             case .performance: .performance
             case .startup: .startup
+            case .users: .users
             case .services: .services
             }
         }
+
+        /// Pages that show per-process values; processes are only sampled while one is open.
+        var samplesProcesses: Bool { self == .processes || self == .users }
     }
+
+    /// A plain reference, not an observed object, so this view doesn't redraw on every tick.
+    let monitor: PerformanceMonitor
 
     @AppStorage("selectedPage") private var page: Page = .performance
     @AppStorage("navigationCollapsed") private var collapsed = false
@@ -39,6 +48,7 @@ struct ContentView: View {
                     case .processes: ProcessesView(search: search)
                     case .performance: PerformanceView()
                     case .startup: StartupView(search: search)
+                    case .users: UsersView(search: search)
                     case .services: ServicesView(search: search)
                     }
                 }
@@ -57,6 +67,8 @@ struct ContentView: View {
                 .allowsHitTesting(false)
         }
         .ignoresSafeArea(.container, edges: .top)
+        .onAppear { monitor.samplesProcesses = page.samplesProcesses }
+        .onChange(of: page) { monitor.samplesProcesses = $0.samplesProcesses }
     }
 }
 

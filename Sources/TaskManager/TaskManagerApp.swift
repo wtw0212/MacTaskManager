@@ -8,7 +8,7 @@ struct TaskManagerApp: App {
 
     var body: some Scene {
         WindowGroup("Task Manager") {
-            ContentView()
+            ContentView(monitor: monitor)
                 .environmentObject(monitor)
                 .frame(minWidth: 980, minHeight: 660)
         }

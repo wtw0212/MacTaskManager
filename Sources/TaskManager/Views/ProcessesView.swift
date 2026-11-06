@@ -66,6 +66,8 @@ struct ProcessContext {
 struct ProcessGroup: Identifiable {
     var main: ProcessRow
     var children: [ProcessRow]
+    /// Replaces the process status text, e.g. "Active" for a user on the Users page.
+    var statusOverride: String? = nil
     var id: pid_t { main.id }
 
     var title: String { children.isEmpty ? main.name : "\(main.name) (\(children.count + 1))" }
@@ -85,6 +87,7 @@ struct ProcessGroup: Identifiable {
     var threads: Double? { total { Double($0.threads ?? -1) } }
 
     var statusText: String {
+        if let statusOverride { return statusOverride }
         switch main.status {
         case .suspended: "Suspended"
         case .efficiency: "Efficiency mode"
@@ -133,6 +136,20 @@ struct ProcessGroup: Identifiable {
         return titles.joined(separator: "\t") + "\n" + values.joined(separator: "\t")
     }
 
+    /// Sorts by a column (nil: Name). Text columns sort alphabetically, the rest by value.
+    static func sorted(_ groups: [ProcessGroup], by column: ProcessColumn?, ascending: Bool,
+                       context: ProcessContext) -> [ProcessGroup] {
+        let isOrdered = { (a: ProcessGroup, b: ProcessGroup) -> Bool in
+            if let column, column.isNumeric || column == .energy {
+                return (a.sortValue(column) ?? -1) < (b.sortValue(column) ?? -1)
+            }
+            let text = { (group: ProcessGroup) in column.map { group.cell($0, context).text } ?? group.main.name }
+            return text(a).localizedCaseInsensitiveCompare(text(b)) == .orderedAscending
+        }
+        // Swap the operands for descending: negating would make ties compare true both ways.
+        return groups.sorted { ascending ? isOrdered($0, $1) : isOrdered($1, $0) }
+    }
+
     func sortValue(_ column: ProcessColumn) -> Double? {
         switch column {
         case .pid: Double(main.id)
@@ -143,6 +160,37 @@ struct ProcessGroup: Identifiable {
         case .energy: energy
         case .threads: threads
         case .status, .user, .architecture, .path: nil
+        }
+    }
+}
+
+extension ProcessContext {
+    @MainActor
+    init(monitor: PerformanceMonitor, memoryAsPercent: Bool, diskAsPercent: Bool, networkAsPercent: Bool) {
+        self.init(
+            totalMemory: Double(monitor.memory?.total ?? 1),
+            diskRate: monitor.disks.map { $0.readRate + $0.writeRate }.reduce(0, +),
+            diskActive: monitor.disks.map(\.activeTime).max() ?? 0,
+            linkSpeed: Double(monitor.networks.map(\.counters.linkSpeed).reduce(0, +)),
+            memoryAsPercent: memoryAsPercent,
+            diskAsPercent: diskAsPercent,
+            networkAsPercent: networkAsPercent
+        )
+    }
+}
+
+extension PerformanceMonitor {
+    /// Whole-system totals above the resource columns, as in Windows.
+    func columnTotal(_ column: ProcessColumn) -> String? {
+        switch column {
+        case .cpu: return Theme.percent(currentTotal)
+        case .memory: return Theme.percent(memory?.usedFraction)
+        case .disk: return Theme.percent(disks.map(\.activeTime).max() ?? 0)
+        case .network:
+            let rate = networks.map { $0.receiveRate + $0.sendRate }.reduce(0, +)
+            let speed = Double(networks.map(\.counters.linkSpeed).reduce(0, +))
+            return speed > 0 ? Theme.percent(rate * 8 / speed) : Theme.megabitRate(rate)
+        default: return nil
         }
     }
 }
@@ -222,14 +270,9 @@ struct ProcessesView: View {
             }
         } message: { Text($0.message) }
         .sheet(item: $properties) { ProcessPropertiesView(row: $0) }
-        .onAppear {
-            keys.start()
-            monitor.samplesProcesses = true
-        }
-        .onDisappear {
-            keys.stop()
-            monitor.samplesProcesses = false
-        }
+        // ContentView turns process sampling on and off with the page.
+        .onAppear { keys.start() }
+        .onDisappear { keys.stop() }
     }
 
     // MARK: Rows
@@ -473,32 +516,15 @@ struct ProcessesView: View {
         }
     }
 
-    /// Whole-system totals above the resource columns, as in Windows.
     private func total(_ column: ProcessColumn) -> String? {
-        switch column {
-        case .cpu: return Theme.percent(monitor.currentTotal)
-        case .memory: return Theme.percent(monitor.memory?.usedFraction)
-        case .disk: return Theme.percent(monitor.disks.map(\.activeTime).max() ?? 0)
-        case .network:
-            let rate = monitor.networks.map { $0.receiveRate + $0.sendRate }.reduce(0, +)
-            let speed = Double(monitor.networks.map(\.counters.linkSpeed).reduce(0, +))
-            return speed > 0 ? Theme.percent(rate * 8 / speed) : Theme.megabitRate(rate)
-        default: return nil
-        }
+        monitor.columnTotal(column)
     }
 
     // MARK: Data
 
     private var context: ProcessContext {
-        ProcessContext(
-            totalMemory: Double(monitor.memory?.total ?? 1),
-            diskRate: monitor.disks.map { $0.readRate + $0.writeRate }.reduce(0, +),
-            diskActive: monitor.disks.map(\.activeTime).max() ?? 0,
-            linkSpeed: Double(monitor.networks.map(\.counters.linkSpeed).reduce(0, +)),
-            memoryAsPercent: memoryAsPercent,
-            diskAsPercent: diskAsPercent,
-            networkAsPercent: networkAsPercent
-        )
+        ProcessContext(monitor: monitor, memoryAsPercent: memoryAsPercent, diskAsPercent: diskAsPercent,
+                       networkAsPercent: networkAsPercent)
     }
 
     private var sections: [ListSection] {
@@ -536,17 +562,7 @@ struct ProcessesView: View {
     }
 
     private func sorted(_ groups: [ProcessGroup]) -> [ProcessGroup] {
-        let context = self.context
-        let column = sortColumn
-        let isOrdered = { (a: ProcessGroup, b: ProcessGroup) -> Bool in
-            if let column, column.isNumeric || column == .energy {
-                return (a.sortValue(column) ?? -1) < (b.sortValue(column) ?? -1)
-            }
-            let text = { (group: ProcessGroup) in column.map { group.cell($0, context).text } ?? group.main.name }
-            return text(a).localizedCaseInsensitiveCompare(text(b)) == .orderedAscending
-        }
-        // Swap the operands for descending: negating would make ties compare true both ways.
-        return groups.sorted { ascending ? isOrdered($0, $1) : isOrdered($1, $0) }
+        ProcessGroup.sorted(groups, by: sortColumn, ascending: ascending, context: context)
     }
 
     private func sorted(_ rows: [ProcessRow]) -> [ProcessRow] {
@@ -555,7 +571,7 @@ struct ProcessesView: View {
 }
 
 /// One row: disclosure chevron, icon and name, then a cell per visible column.
-private struct ProcessLine: View {
+struct ProcessLine: View {
     private static let genericIcon = NSWorkspace.shared.icon(for: .unixExecutable)
 
     var group: ProcessGroup
@@ -568,6 +584,8 @@ private struct ProcessLine: View {
     var context: ProcessContext
     var isSelected: Bool
     var toggle: () -> Void
+    /// A Fluent icon in place of the app icon (e.g. a person for a user row).
+    var symbol: FluentIcon? = nil
 
     var body: some View {
         HStack(spacing: 0) {
@@ -585,9 +603,14 @@ private struct ProcessLine: View {
                     Color.clear.frame(width: DS.Size.icon, height: DS.Size.listRow)
                 }
 
-                Image(nsImage: icon ?? Self.genericIcon)
-                    .resizable()
-                    .frame(width: DS.Size.icon, height: DS.Size.icon)
+                if let symbol {
+                    Fluent(symbol, size: DS.Size.icon)
+                        .frame(width: DS.Size.icon, height: DS.Size.icon)
+                } else {
+                    Image(nsImage: icon ?? Self.genericIcon)
+                        .resizable()
+                        .frame(width: DS.Size.icon, height: DS.Size.icon)
+                }
                 Text(title).font(DS.Typeface.body)
             }
             .padding(.leading, DS.Space.s + CGFloat(indent) * (DS.Size.icon + DS.Space.s))
@@ -630,7 +653,7 @@ private struct ProcessLine: View {
     }
 }
 
-private struct CellFrame: ViewModifier {
+struct CellFrame: ViewModifier {
     var column: ProcessColumn
     var heat: Double?
 

@@ -35,6 +35,7 @@ struct ProcessRow: Identifiable {
     var responsiblePID: pid_t = 0
     var parentPID: pid_t = 0
     var user = ""
+    var uid: uid_t = 0
     var status: Status?
     var architecture = ""
     var startTime: Date?
@@ -121,6 +122,7 @@ final class ProcessSampler {
                 responsiblePID: responsibility_get_pid_responsible_for_pid(pid),
                 parentPID: info.kp_eproc.e_ppid,
                 user: userName(uid),
+                uid: uid,
                 status: info.kp_proc.p_stat == SSTOP ? .suspended : Self.isEfficient(pid) ? .efficiency : nil,
                 architecture: info.kp_proc.p_flag & P_TRANSLATED != 0 ? "Intel" : nativeArchitecture,
                 startTime: Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
