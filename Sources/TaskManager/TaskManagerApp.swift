@@ -18,7 +18,9 @@ struct TaskManagerApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Needed when launched with `swift run`, which has no app bundle.
+        // Needed when launched with `swift run`, which has no app bundle. A bundled app is
+        // activated by the system, which also lets `open -g` keep it in the background.
+        guard Bundle.main.bundleIdentifier == nil else { return }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }
