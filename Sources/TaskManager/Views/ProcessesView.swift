@@ -5,7 +5,8 @@ import UniformTypeIdentifiers
 /// Columns after Name. CPU, Memory, Disk and Network are always shown, as in Windows;
 /// the rest can be turned on and off by right-clicking the column headers.
 enum ProcessColumn: String, CaseIterable, Identifiable {
-    case status, pid, user, cpu, memory, disk, network, energy, threads, architecture, path
+    case status, pid, user, cpu, memory, disk, diskRead, diskWrite, network, gpu, gpuEngine, energy, threads,
+         architecture, path
 
     var id: Self { self }
 
@@ -17,6 +18,10 @@ enum ProcessColumn: String, CaseIterable, Identifiable {
         case .cpu: "CPU"
         case .memory: "Memory"
         case .disk: "Disk"
+        case .diskRead: "Disk read"
+        case .diskWrite: "Disk write"
+        case .gpu: "GPU"
+        case .gpuEngine: "GPU engine"
         case .network: "Network"
         case .energy: "Power usage"
         case .threads: "Threads"
@@ -26,7 +31,7 @@ enum ProcessColumn: String, CaseIterable, Identifiable {
     }
 
     var isOptional: Bool { ![.cpu, .memory, .disk, .network].contains(self) }
-    var isNumeric: Bool { [.pid, .cpu, .memory, .disk, .network, .threads].contains(self) }
+    var isNumeric: Bool { [.pid, .cpu, .memory, .disk, .diskRead, .diskWrite, .network, .gpu, .threads].contains(self) }
 
     var width: CGFloat {
         switch self {
@@ -82,6 +87,12 @@ struct ProcessGroup: Identifiable {
     var cpu: Double? { total(\.cpu) }
     var memory: Double? { total { $0.memory == 0 ? -1 : Double($0.memory) } }
     var diskRate: Double? { total(\.diskRate) }
+    var diskReadRate: Double? { total(\.diskReadRate) }
+    var diskWriteRate: Double? { total(\.diskWriteRate) }
+    /// Summed over the app and its helpers, capped at the whole GPU.
+    var gpu: Double? { total(\.gpu).map { min($0, 1) } }
+    /// The API of the busiest process in the group.
+    var gpuAPI: String { all.filter { !$0.gpuAPI.isEmpty }.max { $0.gpu < $1.gpu }?.gpuAPI ?? "" }
     var networkRate: Double? { total(\.networkRate) }
     var energy: Double? { total(\.energy) }
     var threads: Double? { total { Double($0.threads ?? -1) } }
@@ -116,6 +127,14 @@ struct ProcessGroup: Identifiable {
             // The process's share of all disk traffic, applied to the busiest disk's active time.
             let share = context.diskRate > 0 ? min(diskRate / context.diskRate, 1) * context.diskActive : 0
             return (context.diskAsPercent ? Theme.precisePercent(share) : Theme.megabyteRate(diskRate), diskRate / 20_000_000)
+        case .diskRead, .diskWrite:
+            guard let rate = column == .diskRead ? diskReadRate : diskWriteRate else { return ("–", 0) }
+            return (Theme.megabyteRate(rate), rate / 20_000_000)
+        case .gpu:
+            guard let gpu else { return ("–", 0) }
+            return (Theme.precisePercent(gpu), gpu / 0.25)
+        case .gpuEngine:
+            return (gpuAPI, nil)
         case .network:
             guard let networkRate else { return ("–", 0) }
             let text = context.networkAsPercent && context.linkSpeed > 0
@@ -156,10 +175,13 @@ struct ProcessGroup: Identifiable {
         case .cpu: cpu
         case .memory: memory
         case .disk: diskRate
+        case .diskRead: diskReadRate
+        case .diskWrite: diskWriteRate
+        case .gpu: gpu
         case .network: networkRate
         case .energy: energy
         case .threads: threads
-        case .status, .user, .architecture, .path: nil
+        case .status, .user, .architecture, .path, .gpuEngine: nil
         }
     }
 }
@@ -186,6 +208,7 @@ extension PerformanceMonitor {
         case .cpu: return Theme.percent(currentTotal)
         case .memory: return Theme.percent(memory?.usedFraction)
         case .disk: return Theme.percent(disks.map(\.activeTime).max() ?? 0)
+        case .gpu: return Theme.percent(gpus.compactMap(\.reading.utilization).max() ?? 0)
         case .network:
             let rate = networks.map { $0.receiveRate + $0.sendRate }.reduce(0, +)
             let speed = Double(networks.map(\.counters.linkSpeed).reduce(0, +))
@@ -221,7 +244,8 @@ struct ProcessesView: View {
     @State private var alert: ProcessAlert?
     @State private var properties: ProcessRow?
 
-    @AppStorage("processHiddenColumns") private var hiddenColumns = "pid,user,threads,architecture,path"
+    // V2: new optional columns (GPU engine, disk read/write) start hidden for existing users too.
+    @AppStorage("processHiddenColumnsV2") private var hiddenColumns = "pid,user,diskRead,diskWrite,gpuEngine,threads,architecture,path"
     @AppStorage("groupByType") private var groupByType = true
     @AppStorage("memoryAsPercent") private var memoryAsPercent = false
     @AppStorage("diskAsPercent") private var diskAsPercent = false

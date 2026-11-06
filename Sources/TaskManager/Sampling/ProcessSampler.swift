@@ -27,6 +27,11 @@ struct ProcessRow: Identifiable {
     var threads: Int?
     /// Disk read + write in bytes per second. -1 when not readable.
     var diskRate: Double = -1
+    var diskReadRate: Double = -1
+    var diskWriteRate: Double = -1
+    /// Share of the GPU, 0...1, and the graphics API in use. -1 / "" when the process doesn't use the GPU.
+    var gpu: Double = -1
+    var gpuAPI = ""
     /// Network received + sent in bytes per second, from nettop. -1 when not available.
     var networkRate: Double = -1
     /// Average power over the last interval in watts. -1 when not readable.
@@ -57,7 +62,8 @@ final class ProcessSampler {
 
     private struct Counters {
         var cpu: UInt64
-        var disk: UInt64
+        var diskRead: UInt64
+        var diskWrite: UInt64
         var energy: UInt64
     }
 
@@ -66,6 +72,7 @@ final class ProcessSampler {
     private var names: [Identity: Cached] = [:]
     private var userNames: [uid_t: String] = [:]
     private let network = ProcessNetworkSampler()
+    private let gpuSampler = ProcessGPUSampler()
     private let ticksToNanoseconds: Double = {
         var timebase = mach_timebase_info_data_t()
         mach_timebase_info(&timebase)
@@ -88,6 +95,7 @@ final class ProcessSampler {
             apps[app.processIdentifier] = app
         }
         let networkRates = network.rates()
+        let gpuUsage = gpuSampler.sample()
 
         var rows: [ProcessRow] = []
         var current: [Identity: Counters] = [:]
@@ -130,7 +138,8 @@ final class ProcessSampler {
 
             if readable {
                 let counters = Counters(cpu: usage.ri_user_time + usage.ri_system_time,
-                                        disk: usage.ri_diskio_bytesread + usage.ri_diskio_byteswritten,
+                                        diskRead: usage.ri_diskio_bytesread,
+                                        diskWrite: usage.ri_diskio_byteswritten,
                                         energy: usage.ri_energy_nj)
                 current[identity] = counters
                 let old = previous[identity]
@@ -140,9 +149,18 @@ final class ProcessSampler {
                 }
                 row.cpu = min((delta(\.cpu) ?? 0) * ticksToNanoseconds / max(elapsed, 1) / coreCount, 1)
                 row.memory = usage.ri_phys_footprint
-                row.diskRate = (delta(\.disk) ?? 0) / (max(elapsed, 1) / 1_000_000_000)
+                let seconds = max(elapsed, 1) / 1_000_000_000
+                row.diskReadRate = (delta(\.diskRead) ?? 0) / seconds
+                row.diskWriteRate = (delta(\.diskWrite) ?? 0) / seconds
+                row.diskRate = row.diskReadRate + row.diskWriteRate
                 // Nanojoules per nanosecond = watts. A counter that never moved means it isn't reported here.
                 row.energy = usage.ri_energy_nj == 0 ? -1 : (delta(\.energy) ?? 0) / max(elapsed, 1)
+            }
+            if let gpu = gpuUsage[pid] {
+                row.gpu = gpu.share
+                row.gpuAPI = gpu.api
+            } else if !gpuUsage.isEmpty {
+                row.gpu = 0
             }
             rows.append(row)
         }

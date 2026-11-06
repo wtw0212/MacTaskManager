@@ -24,7 +24,7 @@ struct UsersView: View {
     @AppStorage("diskAsPercent") private var diskAsPercent = false
     @AppStorage("networkAsPercent") private var networkAsPercent = false
 
-    private static let columns: [ProcessColumn] = [.status, .cpu, .memory, .disk, .network, .energy]
+    private static let columns: [ProcessColumn] = [.status, .cpu, .memory, .disk, .network, .gpu, .energy]
 
     var body: some View {
         let context = ProcessContext(monitor: monitor, memoryAsPercent: memoryAsPercent,
