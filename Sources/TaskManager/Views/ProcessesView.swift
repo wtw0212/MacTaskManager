@@ -41,7 +41,8 @@ enum ProcessColumn: String, CaseIterable, Identifiable {
 /// Windows' "Power usage" levels, from average watts over the last interval.
 enum PowerUsage {
     static let names = ["Very low", "Low", "Moderate", "High", "Very high"]
-    private static let thresholds = [0.05, 0.5, 2, 5] // watts
+    // Watts. Measured: idle apps read under 0.01 W, one fully busy performance core about 7 W.
+    private static let thresholds = [0.05, 0.5, 2, 10]
 
     static func level(_ watts: Double) -> Int {
         thresholds.firstIndex { watts < $0 } ?? thresholds.count
@@ -123,6 +124,13 @@ struct ProcessGroup: Identifiable {
             let level = PowerUsage.level(energy)
             return (PowerUsage.names[level], Double(level) / 4)
         }
+    }
+
+    /// Column titles and this row's values, tab-separated, ready to paste into a spreadsheet.
+    func details(_ columns: [ProcessColumn], _ context: ProcessContext) -> String {
+        let titles = ["Name"] + columns.map(\.title)
+        let values = [title] + columns.map { cell($0, context).text }
+        return titles.joined(separator: "\t") + "\n" + values.joined(separator: "\t")
     }
 
     func sortValue(_ column: ProcessColumn) -> Double? {
@@ -365,12 +373,9 @@ struct ProcessesView: View {
         if let url = components.url { NSWorkspace.shared.open(url) }
     }
 
-    /// Visible column titles and this row's values, tab-separated, ready to paste into a spreadsheet.
     private func copyDetails(_ group: ProcessGroup, _ columns: [ProcessColumn], _ context: ProcessContext) {
-        let titles = ["Name"] + columns.map(\.title)
-        let values = [group.title] + columns.map { group.cell($0, context).text }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(titles.joined(separator: "\t") + "\n" + values.joined(separator: "\t"), forType: .string)
+        NSPasteboard.general.setString(group.details(columns, context), forType: .string)
     }
 
     // MARK: Keyboard
@@ -521,17 +526,17 @@ struct ProcessesView: View {
     }
 
     private func sorted(_ groups: [ProcessGroup]) -> [ProcessGroup] {
-        groups.sorted { a, b in
-            let ordered: Bool
-            if let column = sortColumn, column.isNumeric || column == .energy {
-                ordered = (a.sortValue(column) ?? -1) < (b.sortValue(column) ?? -1)
-            } else {
-                let context = self.context
-                let text = { (group: ProcessGroup) in sortColumn.map { group.cell($0, context).text } ?? group.main.name }
-                ordered = text(a).localizedCaseInsensitiveCompare(text(b)) == .orderedAscending
+        let context = self.context
+        let column = sortColumn
+        let isOrdered = { (a: ProcessGroup, b: ProcessGroup) -> Bool in
+            if let column, column.isNumeric || column == .energy {
+                return (a.sortValue(column) ?? -1) < (b.sortValue(column) ?? -1)
             }
-            return ascending ? ordered : !ordered
+            let text = { (group: ProcessGroup) in column.map { group.cell($0, context).text } ?? group.main.name }
+            return text(a).localizedCaseInsensitiveCompare(text(b)) == .orderedAscending
         }
+        // Swap the operands for descending: negating would make ties compare true both ways.
+        return groups.sorted { ascending ? isOrdered($0, $1) : isOrdered($1, $0) }
     }
 
     private func sorted(_ rows: [ProcessRow]) -> [ProcessRow] {
