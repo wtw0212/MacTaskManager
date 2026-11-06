@@ -16,17 +16,17 @@ OUT="${OUT:-bench/results/$(date +%Y%m%d-%H%M%S)}"
 RUST_FEATURES="${RUST_FEATURES:-}"
 mkdir -p "$OUT"
 
-echo "Building Swift (release)…"
+echo "Building Swift (release)..."
 swift build -c release
 SWIFT_BIN="$(swift build -c release --show-bin-path)/TaskManager"
 
-echo "Building Rust (release)…"
+echo "Building Rust (release)..."
 (cd rust-gpui && cargo build --release ${RUST_FEATURES:+--features "$RUST_FEATURES"})
 RUST_BIN="rust-gpui/target/release/TaskManagerGPUI"
 
 run() {
     local label="$1"; shift
-    echo "Measuring $label…"
+    echo "Measuring ${label}..."
     "$@" >"$OUT/$label.log" 2>&1 &
     local pid=$!
     if [ "$SCREENSHOTS" = 1 ]; then
@@ -34,7 +34,7 @@ run() {
     fi
     python3 bench/measure.py sample --pid "$pid" --label "$label" \
         --warmup "$WARMUP" --duration "$DURATION" --out "$OUT/$label.json"
-    # Memory by category (IOSurface, IOAccelerator, malloc, …) when the tool may inspect the app.
+    # Memory by category (IOSurface, IOAccelerator, malloc, ...) when the tool may inspect the app.
     footprint "$pid" >"$OUT/$label.footprint.txt" 2>&1 || true
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
