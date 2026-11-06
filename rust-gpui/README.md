@@ -49,6 +49,18 @@ windows come to the front while they are measured. Results and a Markdown table 
 The `Rust GPUI` GitHub Actions workflow runs the same comparison on a macOS runner for every
 push, with screenshots; the table is on the run's summary page.
 
+### Reading the memory numbers
+
+The footprint counts what each process owns. GPUI renders the whole window itself with Metal,
+so its drawables (about 32 MB of IOSurface for a 1100×720 Retina window, triple buffered) are
+in the app's footprint. SwiftUI/AppKit hand their layers to the system's render server, so the
+equivalent memory sits in WindowServer and does not show in the Swift app's footprint.
+`bench/compare.sh` saves each app's `footprint` breakdown by category next to the results.
+
+GPUI also drives each visible window with a display link at the screen's refresh rate, which
+shows up as 60–120 wakeups per second even when nothing changes; SwiftUI only wakes for the
+1 s timer.
+
 ### "GC"
 
 Neither app has a garbage collector. Swift frees memory with automatic reference counting
