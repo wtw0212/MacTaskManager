@@ -22,18 +22,16 @@ Base: main at cc27d9f. This branch builds with zero warnings (`swift build`).
    - Not tested: the UI (no screenshot taken yet), the admin prompt path for system services, RAM.
    - Nav: currently appended last. Insert in the order above once App history and Users exist.
    - Stopping a system service without admin gives "Not privileged to signal service."
-2. **Users: code done (cloud, compiles on CI), not run yet.** UsersView.swift reuses ProcessLine/ProcessGroup;
+2. **Users: code done, checked on the Mac (below).** UsersView.swift reuses ProcessLine/ProcessGroup;
    rows get negative IDs (Int32.min + uid). People (uid >= 500, no `_`) first with Active/Disconnected from
    SCDynamicStoreCopyConsoleUser, then "System accounts". Process sampling is now switched by ContentView for
    .processes and .users.
-3. **App history: code done, not run yet.** Sampling/AppHistory.swift (10 s timer on main, rusage + one-shot
+3. **App history: code done, checked on the Mac (below).** Sampling/AppHistory.swift (10 s timer on main, rusage + one-shot
    nettop on a queue, baseline first pass, saves every minute and on quit to
    ~/Library/Application Support/TaskManager/app-history.json). Views/AppHistoryView.swift.
-4. **GPU and disk columns: code done, not run yet.** Sampling/ProcessGPUSampler.swift. CHECK on the Mac that
-   accumulatedGPUTime really is in nanoseconds: summed per-process GPU % should roughly match the GPU tile.
-   If it's ~41x too small it's 24 MHz ticks. AppStorage key is now "processHiddenColumnsV2".
-5. **Battery: code done, not run yet.** Sampling/BatterySampler.swift, Views/BatteryDetailView.swift. Graph is
-   |battery power| (no signed graph). CHECK: Temperature scale (0.01 °C), Amperage sign, AdapterDetails name.
+4. **GPU and disk columns: code done, checked on the Mac (below).** Sampling/ProcessGPUSampler.swift. accumulatedGPUTime is in nanoseconds. AppStorage key is now "processHiddenColumnsV2".
+5. **Battery: code done, checked on battery power only (below).** Sampling/BatterySampler.swift, Views/BatteryDetailView.swift. Graph is
+   |battery power| (no signed graph). Still to check while plugged in: AdapterDetails name and watts.
 
 ## Checked on an M5 Pro on battery, 2026-11-06 (release build, background)
 - GPU: accumulatedGPUTime is nanoseconds. Sum of per-process GPU 33.4% vs Device Utilization 31.9% over 10 s. No fix needed.
@@ -55,6 +53,5 @@ Copy the sources to a scratch folder and add a temporary hook there:
 Launch with `-selectedPage <page>`, read `footprint -p <pid>`, capture with `screencapture -l<id> -o -x`.
 
 ## Other open items
-- `dist/TaskManager.dmg` isn't rebuilt with these features.
 - After leaving Processes, footprint stays at about 51-54 MB; the launch peak is about 128 MB (cause unknown).
 - GitHub auth: repo-local credential config in .git/config (not in the repo, won't exist on another machine).
