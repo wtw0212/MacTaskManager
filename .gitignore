@@ -5,3 +5,5 @@ DerivedData/
 build/
 .DS_Store
 dist/
+rust-gpui/**/target/
+bench/results/

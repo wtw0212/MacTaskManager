@@ -1,0 +1,30 @@
+[package]
+name = "task-manager-gpui"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Windows-style Task Manager for macOS in Rust and GPUI, to compare with the Swift/SwiftUI version."
+license = "MIT"
+
+[[bin]]
+name = "TaskManagerGPUI"
+path = "src/main.rs"
+
+[workspace]
+members = ["sampler"]
+
+[features]
+default = []
+# Compile the Metal shaders when the app starts instead of at build time. Needed when the
+# Metal compiler isn't installed (Xcode 26 ships it as a separate "Metal Toolchain" download).
+runtime-shaders = ["gpui/runtime_shaders"]
+
+[dependencies]
+gpui = "=0.2.2"
+sampler = { path = "sampler" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
