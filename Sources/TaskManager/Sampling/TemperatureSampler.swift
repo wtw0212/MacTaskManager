@@ -23,6 +23,8 @@ struct TemperatureReading {
     var gpu: Double?
     /// True when `gpu` is the shared SoC die reading because no GPU-only sensor exists.
     var gpuIsSoC = false
+    /// Hottest of the battery gas gauge's sensors in °C.
+    var battery: Double?
     var sensors: [(name: String, celsius: Double)] = []
 }
 
@@ -72,6 +74,7 @@ final class TemperatureSampler {
             cpu: cpu,
             gpu: gpu ?? cpu,
             gpuIsSoC: gpu == nil && cpu != nil,
+            battery: sensors.filter { $0.name.contains("gas gauge battery") }.map(\.celsius).max(),
             sensors: sensors.sorted { $0.name < $1.name }
         )
     }

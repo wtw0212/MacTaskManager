@@ -35,8 +35,19 @@ Base: main at cc27d9f. This branch builds with zero warnings (`swift build`).
 5. **Battery: code done, not run yet.** Sampling/BatterySampler.swift, Views/BatteryDetailView.swift. Graph is
    |battery power| (no signed graph). CHECK: Temperature scale (0.01 °C), Amperage sign, AdapterDetails name.
 
-All of the above built on GitHub Actions (macos-15, warnings as errors) but have not been launched.
-Next on the Mac: run each page in the background, check values, screenshots, footprint table, DMG.
+## Checked on an M5 Pro on battery, 2026-11-06 (release build, background)
+- GPU: accumulatedGPUTime is nanoseconds. Sum of per-process GPU 33.4% vs Device Utilization 31.9% over 10 s. No fix needed.
+- Disk write column: 464.7 MB/s vs iostat 467. Disk read column not confirmed (test missed the row).
+- Users: rows, Active, expanding (via search) work. System accounts show "–" for CPU/memory/disk without root.
+- App history: rows after one 10 s tick; file written at 59 s and on quit; CPU time matches ps.
+- Battery: registry has no Temperature key here, so it now comes from the gas gauge HID sensors (27-31 C). Time
+  remaining now comes from IOPowerSources and matches pmset. System power uses SystemLoad (SystemPowerIn is 0 on
+  battery). The registry updates about every 60 s, so the power graph is a staircase. IOPowerSources has no
+  BatteryHealth here, so the Condition row is hidden.
+- Not tested: charging, adapter name and watts (Mac stayed on battery); Services UI; End task on Users.
+- Footprint after 45 s: Performance 32 MB, App history 34 MB, Users 49 MB, Processes 65-72 MB. Side by side, main is
+  57-65 MB and this branch 61-72 MB on Processes, about 6 MB more; with history, GPU sampling and battery off it
+  matches main (58-60 MB).
 
 ## Measuring (no hooks in the repo)
 Copy the sources to a scratch folder and add a temporary hook there:

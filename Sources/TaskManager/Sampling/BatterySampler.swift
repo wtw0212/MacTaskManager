@@ -32,8 +32,9 @@ struct BatteryReading {
 /// from IOPowerSources. The service is looked up once and kept.
 final class BatterySampler {
     private let service: io_registry_entry_t
-    private var cachedCondition: String?
-    private var samplesSinceCondition = Int.max
+    private var cachedSource: (condition: String?, minutes: Int?) = (nil, nil)
+    private var samplesSinceSource = Int.max
+    private var wasCharging = false
 
     /// nil when the Mac has no battery.
     init?() {
@@ -71,45 +72,48 @@ final class BatterySampler {
             reading.power = Double(millivolts) * Double(amperage) / 1_000_000
         }
         if let telemetry = IORegistry.property("PowerTelemetryData", of: service) as? [String: Any],
-           let milliwatts = (telemetry["SystemPowerIn"] as? NSNumber)?.doubleValue, milliwatts > 0 {
+           // SystemPowerIn is adapter input, 0 on battery; SystemLoad is what the Mac draws either way.
+           let milliwatts = (telemetry["SystemLoad"] as? NSNumber)?.doubleValue, milliwatts > 0 {
             reading.systemPower = milliwatts / 1000
         }
-
-        // 65535 means "still calculating".
-        let minutes = isCharging ? int("AvgTimeToFull") : int("AvgTimeToEmpty")
-        if let minutes, minutes > 0, minutes < 65535, !reading.isFullyCharged { reading.minutesRemaining = minutes }
 
         let design = int("DesignCapacity") ?? nested("DesignCapacity")
         let full = nested("NominalChargeCapacity") ?? int("AppleRawMaxCapacity") ?? int("NominalChargeCapacity")
         reading.designCapacity = design
-        reading.fullChargeCapacity = full
+        // Health uses the nominal figure, as macOS's Maximum Capacity does; this line is the measured one.
+        reading.fullChargeCapacity = nested("FullChargeCapacity") ?? full
         if let design, let full, design > 0 { reading.health = min(Double(full) / Double(design), 1) }
 
         reading.cycleCount = int("CycleCount") ?? nested("CycleCount")
+        // Absent on recent Apple Silicon; PerformanceMonitor then uses the gas gauge's HID sensors.
         if let centi = int("Temperature") ?? int("VirtualTemperature") { reading.temperature = Double(centi) / 100 }
         if let adapter = IORegistry.property("AdapterDetails", of: service) as? [String: Any], reading.isPluggedIn {
             reading.adapterWatts = (adapter["Watts"] as? NSNumber)?.intValue
             reading.adapterName = adapter["Name"] as? String ?? adapter["Description"] as? String
         }
-        // macOS's verdict changes rarely; asking IOPowerSources every tick isn't worth it.
-        if samplesSinceCondition >= 60 {
-            cachedCondition = Self.condition()
-            samplesSinceCondition = 0
+        // These change slowly; asking IOPowerSources every tick isn't worth it, except when charging starts or stops.
+        if samplesSinceSource >= 60 || isCharging != wasCharging {
+            cachedSource = Self.powerSource(isCharging: isCharging)
+            samplesSinceSource = 0
         }
-        samplesSinceCondition += 1
-        reading.condition = cachedCondition
+        samplesSinceSource += 1
+        wasCharging = isCharging
+        reading.condition = cachedSource.condition
+        if !reading.isFullyCharged { reading.minutesRemaining = cachedSource.minutes }
         return reading
     }
 
-    /// "BatteryHealth" from IOPowerSources for the internal battery.
-    private static func condition() -> String? {
+    /// Health verdict and macOS's own time estimate (the one `pmset -g batt` shows; -1 while
+    /// calculating) from IOPowerSources for the internal battery.
+    private static func powerSource(isCharging: Bool) -> (condition: String?, minutes: Int?) {
         guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
+              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return (nil, nil) }
         for source in list {
             guard let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
                   description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType else { continue }
-            return description[kIOPSBatteryHealthKey] as? String
+            let minutes = description[isCharging ? kIOPSTimeToFullChargeKey : kIOPSTimeToEmptyKey] as? Int
+            return (description[kIOPSBatteryHealthKey] as? String, minutes.flatMap { $0 > 0 ? $0 : nil })
         }
-        return nil
+        return (nil, nil)
     }
 }

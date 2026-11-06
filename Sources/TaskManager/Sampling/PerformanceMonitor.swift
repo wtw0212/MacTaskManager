@@ -249,10 +249,11 @@ final class PerformanceMonitor: ObservableObject {
     }
 
     private func sampleBattery() {
-        guard let reading = batterySampler?.sample() else {
+        guard var reading = batterySampler?.sample() else {
             battery = nil
             return
         }
+        reading.temperature = reading.temperature ?? temperature.battery
         var state = battery ?? BatteryState(reading: reading)
         state.reading = reading
         Self.push(abs(reading.power ?? 0), onto: &state.powerHistory)

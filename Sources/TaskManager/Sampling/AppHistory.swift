@@ -89,9 +89,9 @@ final class AppHistory: ObservableObject {
             apps[app.processIdentifier] = .init(key: key, name: app.localizedName ?? key, path: path)
         }
         let sampler = self.sampler
-        queue.async {
+        queue.async { [weak self] in
             let usage = sampler.sample(apps: apps)
-            DispatchQueue.main.async { [weak self] in self?.apply(usage) }
+            DispatchQueue.main.async { self?.apply(usage) }
         }
     }
 
