@@ -16,6 +16,9 @@ struct GPUReading {
 /// Apple Silicon (AGX), AMD and Intel drivers publish a `PerformanceStatistics`
 /// dictionary there; the keys differ slightly by vendor.
 enum GPUSampler {
+    /// Name and core count never change, so the large full property list is read only once per GPU.
+    private static var identities: [UInt64: (name: String, coreCount: Int?)] = [:]
+
     static func sample() -> [GPUReading] {
         var iterator: io_iterator_t = 0
         guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &iterator) == KERN_SUCCESS else {
@@ -36,19 +39,25 @@ enum GPUSampler {
     }
 
     private static func read(_ entry: io_registry_entry_t) -> GPUReading? {
-        guard let props = properties(of: entry) else { return nil }
-        let stats = props["PerformanceStatistics"] as? [String: Any] ?? [:]
+        var id: UInt64 = 0
+        IORegistryEntryGetRegistryEntryID(entry, &id)
+        if identities[id] == nil {
+            guard let props = properties(of: entry) else { return nil }
+            identities[id] = (name(of: entry, props: props), number(props["gpu-core-count"]).map { Int($0) })
+        }
+        let identity = identities[id]
+        let stats = IORegistry.property("PerformanceStatistics", of: entry) as? [String: Any] ?? [:]
 
         let utilization = percent(stats["Device Utilization %"]) ?? percent(stats["GPU Activity(%)"])
         let memory = number(stats["In use system memory"]) ?? number(stats["vramUsedBytes"])
 
         return GPUReading(
-            name: name(of: entry, props: props),
+            name: identity?.name ?? "GPU",
             utilization: utilization,
             renderer: percent(stats["Renderer Utilization %"]),
             tiler: percent(stats["Tiler Utilization %"]),
             memoryInUse: memory.map { UInt64(max($0, 0)) },
-            coreCount: number(props["gpu-core-count"]).map { Int($0) }
+            coreCount: identity?.coreCount
         )
     }
 

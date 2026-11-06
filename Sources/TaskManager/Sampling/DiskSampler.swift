@@ -14,6 +14,9 @@ struct DiskCounters {
 }
 
 enum DiskSampler {
+    /// Name, size and location never change, so the device's property lists are read only once per disk.
+    private static var identities: [String: (name: String, size: UInt64?, isInternal: Bool?)] = [:]
+
     static func read() -> [DiskCounters] {
         var disks: [DiskCounters] = []
         IORegistry.forEachService(matching: "IOBlockStorageDriver") { driver in
@@ -23,30 +26,32 @@ enum DiskSampler {
             guard IORegistryEntryGetChildEntry(driver, kIOServicePlane, &media) == KERN_SUCCESS else { return }
             defer { IOObjectRelease(media) }
             guard let bsdName = IORegistry.property("BSD Name", of: media) as? String else { return }
-            let size = (IORegistry.property("Size", of: media) as? NSNumber)?.uint64Value
-
-            var name = bsdName
-            var isInternal: Bool?
-            var device: io_registry_entry_t = 0
-            if IORegistryEntryGetParentEntry(driver, kIOServicePlane, &device) == KERN_SUCCESS {
-                defer { IOObjectRelease(device) }
-                let props = IORegistry.properties(of: device) ?? [:]
-                let characteristics = props["Device Characteristics"] as? [String: Any]
-                if let product = (characteristics?["Product Name"] as? String)?.trimmingCharacters(in: .whitespaces),
-                   !product.isEmpty {
-                    name = product
+            if identities[bsdName] == nil {
+                var name = bsdName
+                var isInternal: Bool?
+                var device: io_registry_entry_t = 0
+                if IORegistryEntryGetParentEntry(driver, kIOServicePlane, &device) == KERN_SUCCESS {
+                    defer { IOObjectRelease(device) }
+                    let props = IORegistry.properties(of: device) ?? [:]
+                    let characteristics = props["Device Characteristics"] as? [String: Any]
+                    if let product = (characteristics?["Product Name"] as? String)?.trimmingCharacters(in: .whitespaces),
+                       !product.isEmpty {
+                        name = product
+                    }
+                    if let location = (props["Protocol Characteristics"] as? [String: Any])?["Physical Interconnect Location"] as? String {
+                        isInternal = location == "Internal"
+                    }
                 }
-                if let location = (props["Protocol Characteristics"] as? [String: Any])?["Physical Interconnect Location"] as? String {
-                    isInternal = location == "Internal"
-                }
+                identities[bsdName] = (name, (IORegistry.property("Size", of: media) as? NSNumber)?.uint64Value, isInternal)
             }
+            let identity = identities[bsdName]
 
             func counter(_ key: String) -> UInt64 { (stats[key] as? NSNumber)?.uint64Value ?? 0 }
             disks.append(DiskCounters(
                 bsdName: bsdName,
-                name: name,
-                size: size,
-                isInternal: isInternal,
+                name: identity?.name ?? bsdName,
+                size: identity?.size,
+                isInternal: identity?.isInternal,
                 bytesRead: counter("Bytes (Read)"),
                 bytesWritten: counter("Bytes (Write)"),
                 busyTime: counter("Total Time (Read)") + counter("Total Time (Write)")
