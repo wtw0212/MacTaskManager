@@ -322,7 +322,7 @@ struct ProcessesView: View {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
             }
         }
-        Button("Search online") { searchOnline(row.name) }
+        Button("Search online") { SearchOnline.open(row.name) }
         Button("Copy details") { copyDetails(group, columns, context) }
         Button("Properties") { properties = row }
     }
@@ -381,12 +381,6 @@ struct ProcessesView: View {
             confirm: "Suspend",
             action: apply
         )
-    }
-
-    private func searchOnline(_ name: String) {
-        var components = URLComponents(string: "https://www.bing.com/search")!
-        components.queryItems = [URLQueryItem(name: "q", value: name)]
-        if let url = components.url { NSWorkspace.shared.open(url) }
     }
 
     private func copyDetails(_ group: ProcessGroup, _ columns: [ProcessColumn], _ context: ProcessContext) {
@@ -718,6 +712,15 @@ private final class KeyMonitor: ObservableObject {
     func stop() {
         if let token { NSEvent.removeMonitor(token) }
         token = nil
+    }
+}
+
+/// Windows' "Search online": opens a web search for a process or service name.
+enum SearchOnline {
+    static func open(_ name: String) {
+        var components = URLComponents(string: "https://www.bing.com/search")!
+        components.queryItems = [URLQueryItem(name: "q", value: name)]
+        if let url = components.url { NSWorkspace.shared.open(url) }
     }
 }
 

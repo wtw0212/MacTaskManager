@@ -265,6 +265,25 @@ struct ColumnHeader: View {
     }
 }
 
+/// A plain fixed-width list cell: one line, truncated in the middle.
+struct ListCell: View {
+    var text: String
+    var width: CGFloat
+    var secondary = false
+    var alignment: Alignment = .leading
+
+    var body: some View {
+        Text(text)
+            .font(DS.Typeface.body)
+            .monospacedDigit()
+            .foregroundStyle(secondary ? .secondary : .primary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, DS.Space.s)
+            .frame(width: width, alignment: alignment)
+    }
+}
+
 /// Section title inside a list, e.g. "Apps (6)".
 struct ListSectionTitle: View {
     var title: String

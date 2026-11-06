@@ -26,6 +26,13 @@ ICONS = {
     "pause": "pause",
     "view": "eye",
     "chevronDown": "chevron_down",
+    "history": "history",
+    "users": "people",
+    "user": "person",
+    "services": "puzzle_cube",
+    "start": "play",
+    "stop": "stop",
+    "delete": "delete",
 }
 STYLES = ["regular", "filled"]
 

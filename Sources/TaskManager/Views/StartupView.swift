@@ -79,23 +79,13 @@ struct StartupView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .help(item.program ?? item.label)
 
-            cell(item.publisher, width: columns.publisher)
-            cell(item.isDisabled ? "Disabled" : "Enabled", width: columns.status, secondary: item.isDisabled)
-            cell(item.startup, width: columns.startup)
-            cell(item.scope.rawValue, width: columns.scope, secondary: true)
+            ListCell(text: item.publisher, width: columns.publisher)
+            ListCell(text: item.isDisabled ? "Disabled" : "Enabled", width: columns.status, secondary: item.isDisabled)
+            ListCell(text: item.startup, width: columns.startup)
+            ListCell(text: item.scope.rawValue, width: columns.scope, secondary: true)
         }
         .frame(height: DS.Size.listRow)
         .rowHighlight(isSelected: selection == item.id)
-    }
-
-    private func cell(_ text: String, width: CGFloat, secondary: Bool = false) -> some View {
-        Text(text)
-            .font(DS.Typeface.body)
-            .foregroundStyle(secondary ? .secondary : .primary)
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .padding(.horizontal, DS.Space.s)
-            .frame(width: width, alignment: .leading)
     }
 
     @ViewBuilder

@@ -92,17 +92,15 @@ enum StartupScanner {
     static func setEnabled(_ enabled: Bool, for item: StartupItem) -> Bool {
         let verb = enabled ? "enable" : "disable"
         if item.scope == .system {
-            let command = "/bin/launchctl \(verb) \(item.domainTarget)"
-            let script = "do shell script \"\(command)\" with administrator privileges"
-            return run("/usr/bin/osascript", ["-e", script]).status == 0
+            return Shell.runAsAdministrator("/bin/launchctl", [verb, item.domainTarget]).status == 0
         }
-        return run("/bin/launchctl", [verb, item.domainTarget]).status == 0
+        return Shell.run("/bin/launchctl", [verb, item.domainTarget]).status == 0
     }
 
     private static func disabledLabels(domain: String) -> [String: Bool] {
         // Lines look like: "com.example.agent" => disabled   (or => true / => enabled / => false)
         var result: [String: Bool] = [:]
-        for line in run("/bin/launchctl", ["print-disabled", domain]).output.split(separator: "\n") {
+        for line in Shell.run("/bin/launchctl", ["print-disabled", domain]).output.split(separator: "\n") {
             let parts = line.components(separatedBy: "=>")
             guard parts.count == 2 else { continue }
             let label = parts[0].trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
@@ -115,7 +113,7 @@ enum StartupScanner {
     private static func runningLabels() -> Set<String> {
         // `launchctl list` prints "PID  Status  Label"; a number in the PID column means running.
         var labels = Set<String>()
-        for line in run("/bin/launchctl", ["list"]).output.split(separator: "\n").dropFirst() {
+        for line in Shell.run("/bin/launchctl", ["list"]).output.split(separator: "\n").dropFirst() {
             let columns = line.split(separator: "\t")
             if columns.count == 3, Int(columns[0]) != nil {
                 labels.insert(String(columns[2]))
@@ -123,21 +121,35 @@ enum StartupScanner {
         }
         return labels
     }
+}
 
-    private static func run(_ tool: String, _ arguments: [String]) -> (status: Int32, output: String) {
+enum Shell {
+    /// Runs a tool and returns its exit status and combined stdout and stderr.
+    static func run(_ tool: String, _ arguments: [String]) -> (status: Int32, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments
         let pipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = Pipe()
+        process.standardError = pipe
         do {
             try process.run()
         } catch {
-            return (-1, "")
+            return (-1, error.localizedDescription)
         }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    /// Same, after macOS asks for an administrator password. Blocks until it's answered.
+    static func runAsAdministrator(_ tool: String, _ arguments: [String]) -> (status: Int32, output: String) {
+        let command = ([tool] + arguments).map(shellQuoted).joined(separator: " ")
+        let string = command.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        return run("/usr/bin/osascript", ["-e", "do shell script \"\(string)\" with administrator privileges"])
+    }
+
+    static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

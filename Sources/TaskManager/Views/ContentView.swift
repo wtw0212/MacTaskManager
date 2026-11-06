@@ -8,6 +8,7 @@ struct ContentView: View {
         case processes = "Processes"
         case performance = "Performance"
         case startup = "Startup apps"
+        case services = "Services"
 
         var id: Self { self }
 
@@ -16,6 +17,7 @@ struct ContentView: View {
             case .processes: .processes
             case .performance: .performance
             case .startup: .startup
+            case .services: .services
             }
         }
     }
@@ -37,6 +39,7 @@ struct ContentView: View {
                     case .processes: ProcessesView(search: search)
                     case .performance: PerformanceView()
                     case .startup: StartupView(search: search)
+                    case .services: ServicesView(search: search)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
