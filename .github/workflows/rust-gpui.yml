@@ -58,6 +58,13 @@ jobs:
             echo
             cat bench/results/ci/report.md
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Memory by category
+        if: always()
+        run: |
+          for file in bench/results/ci/*.footprint.txt; do
+            echo "== $file"
+            head -60 "$file"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
