@@ -29,7 +29,7 @@ struct ProcessRow: Identifiable {
     var diskRate: Double = -1
     /// Network received + sent in bytes per second, from nettop. -1 when not available.
     var networkRate: Double = -1
-    /// Average power over the last interval in watts (billed energy). -1 when not readable.
+    /// Average power over the last interval in watts. -1 when not readable.
     var energy: Double = -1
     /// The process macOS holds responsible for this one (the app, for helpers).
     var responsiblePID: pid_t = 0
@@ -94,10 +94,10 @@ final class ProcessSampler {
 
         for info in Self.allProcesses() where info.kp_proc.p_pid > 0 {
             let pid = info.kp_proc.p_pid
-            var usage = rusage_info_v4()
+            var usage = rusage_info_v6()
             let readable = withUnsafeMutablePointer(to: &usage) {
                 $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
-                    proc_pid_rusage(pid, RUSAGE_INFO_V4, $0)
+                    proc_pid_rusage(pid, RUSAGE_INFO_V6, $0)
                 }
             } == 0
 
@@ -129,7 +129,7 @@ final class ProcessSampler {
             if readable {
                 let counters = Counters(cpu: usage.ri_user_time + usage.ri_system_time,
                                         disk: usage.ri_diskio_bytesread + usage.ri_diskio_byteswritten,
-                                        energy: usage.ri_billed_energy)
+                                        energy: usage.ri_energy_nj)
                 current[identity] = counters
                 let old = previous[identity]
                 func delta(_ value: KeyPath<Counters, UInt64>) -> Double? {
@@ -139,7 +139,8 @@ final class ProcessSampler {
                 row.cpu = min((delta(\.cpu) ?? 0) * ticksToNanoseconds / max(elapsed, 1) / coreCount, 1)
                 row.memory = usage.ri_phys_footprint
                 row.diskRate = (delta(\.disk) ?? 0) / (max(elapsed, 1) / 1_000_000_000)
-                row.energy = (delta(\.energy) ?? 0) / max(elapsed, 1) // nanojoules per nanosecond = watts
+                // Nanojoules per nanosecond = watts. A counter that never moved means it isn't reported here.
+                row.energy = usage.ri_energy_nj == 0 ? -1 : (delta(\.energy) ?? 0) / max(elapsed, 1)
             }
             rows.append(row)
         }
@@ -184,19 +185,25 @@ final class ProcessSampler {
         guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
         var buffer = [UInt8](repeating: 0, count: size)
         guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
-        // Layout: argc, executable path, NUL padding, then argc NUL-terminated arguments.
+        // Layout: argc, executable path, NUL padding, argc NUL-terminated arguments, environment.
         let argc = buffer.withUnsafeBytes { $0.load(as: Int32.self) }
-        var strings = buffer[MemoryLayout<Int32>.size..<size].split(separator: 0, omittingEmptySubsequences: true)
-        guard !strings.isEmpty else { return nil }
-        strings.removeFirst() // executable path
-        return strings.prefix(Int(argc)).map { String(decoding: $0, as: UTF8.self) }
+        let bytes = buffer[MemoryLayout<Int32>.size..<size]
+        guard let pathEnd = bytes.firstIndex(of: 0) else { return nil }
+        let rest = bytes[pathEnd...].drop { $0 == 0 }
+        return rest.split(separator: 0, maxSplits: Int(argc), omittingEmptySubsequences: false)
+            .prefix(Int(argc))
+            .map { String(decoding: $0, as: UTF8.self) }
     }
 
     // MARK: Reading
 
+    /// Darwin background state, set by us or another process (EXT) or by the process itself.
+    /// getpriority() can't be used: it only reports the caller's own state.
     private static func isEfficient(_ pid: pid_t) -> Bool {
-        errno = 0
-        return getpriority(PRIO_DARWIN_PROCESS, id_t(pid)) > 0 && errno == 0
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return false }
+        return info.pbi_flags & UInt32(PROC_FLAG_DARWINBG | PROC_FLAG_EXT_DARWINBG) != 0
     }
 
     /// Every process in one sysctl: PID, parent, owner, state, flags and start time.
