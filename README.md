@@ -10,6 +10,9 @@ A native macOS app, written in Swift and SwiftUI, modelled on the Windows Task M
   - **Network:** per Wi-Fi/Ethernet interface, send/receive graph, IPv4/IPv6 address and totals.
   - **GPU:** utilization graph, renderer and tiler graphs on Apple Silicon, GPU memory in use, temperature and core count.
 - **Startup apps:** launchd agents and daemons that start automatically, with Enable/Disable.
+- **Details:** every process on its own row with PID, status, user, CPU, memory, threads, handles (open files), base priority, architecture and description; End process tree and Set priority.
+- **Settings:** default start page, update speed, app theme, always on top, the optional helper, and "Not responding" detection.
+- **Optional helper:** a small setuid tool (`Sources/tmhelper`), installed only when you ask and only usable by administrators, that lets Task Manager read and control processes owned by root and other users, such as WindowServer.
 
 ## Requirements
 
@@ -57,6 +60,12 @@ Sources/TaskManager/
   Sampling/                   CPU, GPU and system samplers, PerformanceMonitor (1 s timer, 60 s history)
   Views/                      Sidebar, CPU and GPU detail views, the graph view
 ```
+
+## Credits
+
+The privileged helper, End process tree, Set priority and the "Not responding" check are adapted from
+[task-manager-for-mac](https://github.com/yatindma/task-manager-for-mac) by Yatin Arora, MIT License
+(see `LICENSES/task-manager-for-mac.txt`).
 
 ## Icons
 
